@@ -1276,15 +1276,18 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
         <div class="editor-header" id="editorHeader">
             <input type="text" id="editorTitle" class="title-input" placeholder="输入笔记标题..." value="">
             <div class="actions">
+                <!-- 组1：内容编辑 -->
                 <button class="btn-action" id="fontBtn" onclick="toggleFontSelector()" data-tooltip="字体设置">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16"/><path d="M4 17h16"/><path d="M14 21h-4"/><path d="M18 3v4"/><path d="M6 3v4"/><path d="M6 13v8"/></svg>
                 </button>
                 <button class="btn-action" id="sizeBtn" onclick="toggleSizeSelector()" data-tooltip="字号调整">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><text x="4" y="17" font-size="16" fill="currentColor" font-family="serif">A</text><text x="15" y="21" font-size="11" fill="currentColor" font-family="serif">a</text></svg>
                 </button>
-                <button class="btn-action" id="autoSaveBtn" onclick="toggleAutoSaveSelector()" data-tooltip="自动保存">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <button class="btn-action" id="separatorBtn" onclick="insertSeparator()" data-tooltip="插入分隔符 (Ctrl+D)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="8" y1="14" x2="16" y2="14"/></svg>
                 </button>
+                <span class="btn-action divider"></span>
+                <!-- 组2：笔记操作 -->
                 <button class="btn-action save-btn" onclick="saveNote()" data-tooltip="保存 (Ctrl+S)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                 </button>
@@ -1298,6 +1301,10 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 </button>
                 <span class="btn-action divider"></span>
+                <!-- 组3：工具外观 -->
+                <button class="btn-action" id="autoSaveBtn" onclick="toggleAutoSaveSelector()" data-tooltip="自动保存">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </button>
                 <button class="btn-action trash-btn" onclick="openTrash()" data-tooltip="回收站">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                 </button>
@@ -1434,7 +1441,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
         </div>
         <div class="status-bar" id="statusBar">
             <span class="word-count">字符数：<strong id="charCount">0</strong> &nbsp; 不计空格：<strong id="charCountNoSpace">0</strong></span>
-            <span class="shortcut-hint"><kbd>Ctrl+N</kbd> 新建 &nbsp; <kbd>Ctrl+F</kbd> 搜索 &nbsp; <kbd>Ctrl+S</kbd> 保存 &nbsp; <kbd>Esc</kbd> 清空搜索</span>
+            <span class="shortcut-hint"><kbd>Ctrl+N</kbd> 新建 &nbsp; <kbd>Ctrl+F</kbd> 搜索 &nbsp; <kbd>Ctrl+S</kbd> 保存 &nbsp; <kbd>Ctrl+D</kbd> 分隔符 &nbsp; <kbd>Esc</kbd> 清空搜索</span>
         </div>
     </div>
 </div>
@@ -1990,6 +1997,12 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
             document.getElementById('searchInput').select();
             return;
         }
+        // Ctrl+D / Cmd+D：插入分隔符
+        if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+            e.preventDefault();
+            insertSeparator();
+            return;
+        }
     });
 
     // 确认删除对话框
@@ -2191,6 +2204,19 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
         const content = document.getElementById('editorContent').value;
         document.getElementById('charCount').textContent = content.length;
         document.getElementById('charCountNoSpace').textContent = content.replace(/\s/g, '').length;
+    }
+
+    // ===== 插入分隔符 =====
+    function insertSeparator() {
+        const ta = document.getElementById('editorContent');
+        if (!ta) return;
+        const sep = '\n\n' + '\u2500'.repeat(36) + '\n\n';
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        ta.value = ta.value.substring(0, start) + sep + ta.value.substring(end);
+        ta.focus();
+        ta.selectionStart = ta.selectionEnd = start + sep.length;
+        ta.dispatchEvent(new Event('input'));
     }
 
     // ===== 导出 TXT =====
