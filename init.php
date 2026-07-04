@@ -277,3 +277,71 @@ function recycleBinAutoClean(): void {
 }
 // 每次初始化时尝试清理
 recycleBinAutoClean();
+
+/** 自动每日备份数据库 */
+function autoBackupDaily(): void {
+    // 约 1/15 概率触发检查，避免每次请求都读取文件系统
+    if (mt_rand(1, 15) !== 1) {
+        return;
+    }
+    $lastBackup = getSetting('last_backup_time', '');
+    if ($lastBackup && (time() - strtotime($lastBackup)) < 86400) {
+        return; // 24 小时内已备份过
+    }
+    doBackup();
+}
+
+/**
+ * 执行数据库备份
+ * @return array{success: bool, file: string, size: int, message: string}
+ */
+function doBackup(): array {
+    global $config;
+    $dbPath = $config['db_path'];
+    if (!file_exists($dbPath)) {
+        return ['success' => false, 'file' => '', 'size' => 0, 'message' => '数据库文件不存在'];
+    }
+    $backupDir = __DIR__ . '/data/backups';
+    if (!is_dir($backupDir)) {
+        mkdir($backupDir, 0755, true);
+    }
+    $timestamp = date('Ymd_His');
+    $backupFile = $backupDir . '/notes_' . $timestamp . '.db';
+    if (!@copy($dbPath, $backupFile)) {
+        return ['success' => false, 'file' => '', 'size' => 0, 'message' => '备份文件写入失败'];
+    }
+    $size = filesize($backupFile);
+    setSetting('last_backup_time', date('Y-m-d H:i:s'));
+    appLog("数据库备份完成: {$backupFile} (" . round($size/1024, 1) . " KB)");
+
+    // 清理旧备份，保留最近 30 个
+    $files = glob($backupDir . '/notes_*.db');
+    if ($files && count($files) > 30) {
+        usort($files, function($a, $b) { return filemtime($a) <=> filemtime($b); });
+        $toDelete = array_slice($files, 0, count($files) - 30);
+        foreach ($toDelete as $file) { @unlink($file); }
+    }
+    return ['success' => true, 'file' => $backupFile, 'size' => $size, 'message' => '备份成功'];
+}
+
+/** 获取备份信息 */
+function getBackupInfo(): array {
+    $backupDir = __DIR__ . '/data/backups';
+    $files = [];
+    if (is_dir($backupDir)) {
+        $glob = glob($backupDir . '/notes_*.db');
+        if ($glob) {
+            foreach ($glob as $file) {
+                $files[] = [
+                    'name' => basename($file),
+                    'size' => filesize($file),
+                    'time' => filemtime($file),
+                ];
+            }
+            usort($files, function($a, $b) { return $b['time'] <=> $a['time']; });
+        }
+    }
+    return $files;
+}
+// 自动备份检查
+autoBackupDaily();

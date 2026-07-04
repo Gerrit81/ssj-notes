@@ -106,6 +106,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// 处理手动备份
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'backup') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $result = doBackup();
+        if ($result['success']) {
+            $sizeKb = round($result['size'] / 1024, 1);
+            $message = "备份成功！文件：{$result['file']}（{$sizeKb} KB）";
+            $messageType = 'success';
+        } else {
+            $message = "备份失败：{$result['message']}";
+            $messageType = 'error';
+        }
+    }
+}
+
 // 获取所有普通用户
 $stmt = $db->prepare("SELECT id, username, created_at FROM users WHERE is_admin = 0 ORDER BY created_at DESC");
 $stmt->execute();
@@ -141,6 +159,13 @@ $loginLogs = $stmt->fetchAll();
 
 $recycleBinDays = getSetting('recycle_bin_days', '30');
 $userCount = count($users);
+
+// 备份信息
+$backupFiles = getBackupInfo();
+$backupCount = count($backupFiles);
+$lastBackupTime = getSetting('last_backup_time', '');
+$totalBackupSize = 0;
+foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -588,6 +613,51 @@ $userCount = count($users);
                     <button type="submit" class="btn-primary" style="align-self:flex-start;">保存设置</button>
                 </form>
             </div>
+        </div>
+    </div>
+
+    <!-- 数据库备份 -->
+    <div class="card">
+        <div class="card-header" style="justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                数据库备份
+            </div>
+            <form method="post" style="margin:0;display:inline;">
+                <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                <input type="hidden" name="action" value="backup">
+                <button type="submit" class="btn-sm" style="color:#667eea;border-color:#667eea;">立即备份</button>
+            </form>
+        </div>
+        <div class="card-body">
+            <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:12px;">
+                <div><span style="color:#888;font-size:13px;">上次备份</span><br>
+                    <strong style="font-size:15px;"><?= $lastBackupTime ? substr($lastBackupTime, 0, 16) : '尚未备份' ?></strong></div>
+                <div><span style="color:#888;font-size:13px;">备份数量</span><br>
+                    <strong style="font-size:15px;"><?= $backupCount ?> 个</strong></div>
+                <div><span style="color:#888;font-size:13px;">占用空间</span><br>
+                    <strong style="font-size:15px;"><?= $totalBackupSize > 1024*1024 ? round($totalBackupSize/1024/1024,1).' MB' : round($totalBackupSize/1024,1).' KB' ?></strong></div>
+                <div style="flex:1;min-width:180px;">
+                    <span style="color:#888;font-size:13px;">自动备份</span><br>
+                    <span style="font-size:13px;color:#999;">每24小时自动备份一次，保留最近30个备份</span>
+                </div>
+            </div>
+            <?php if (!empty($backupFiles)): ?>
+                <div style="max-height:150px;overflow:auto;border:1px solid #f0f0f5;border-radius:6px;">
+                    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                    <?php foreach (array_slice($backupFiles, 0, 10) as $f): ?>
+                        <tr style="border-bottom:1px solid #f5f5f5;">
+                            <td style="padding:5px 12px;"><?= $f['name'] ?></td>
+                            <td style="padding:5px 12px;color:#999;"><?= round($f['size']/1024,1) ?> KB</td>
+                            <td style="padding:5px 12px;color:#999;"><?= date('Y-m-d H:i', $f['time']) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if ($backupCount > 10): ?>
+                        <tr><td colspan="3" style="padding:5px 12px;color:#999;text-align:center;">...及其他 <?= $backupCount - 10 ?> 个备份</td></tr>
+                    <?php endif; ?>
+                    </table>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 
