@@ -1,0 +1,27 @@
+<?php
+/**
+ * 内网记事本 - 配置文件
+ */
+
+// 应用版本
+$config['app_version'] = '1.7.4';
+
+// 应用名称
+$config['app_name'] = '内网记事本';
+
+// 数据库文件路径
+$config['db_path'] = __DIR__ . '/data/notes.db';
+
+// 会话有效期（秒），默认7天
+$config['session_lifetime'] = 604800;
+
+// 管理员初始账号信息（首次初始化时使用）
+$config['admin_username'] = 'admin';
+$config['admin_password'] = 'admin123';
+
+// 时区设置
+date_default_timezone_set('Asia/Shanghai');
+
+// 错误报告（生产环境建议关闭 display_errors）
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
