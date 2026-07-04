@@ -82,8 +82,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $error = '该用户名已被注册。';
             } else {
                 $hash = password_hash($password, PASSWORD_DEFAULT);
-                $stmt = $db->prepare("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)");
-                $stmt->execute([$username, $hash]);
+                $stmt = $db->prepare("INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, 0, ?)");
+                $stmt->execute([$username, $hash, date('Y-m-d H:i:s')]);
                 $success = '注册成功！请使用新账号登录。';
                 $mode = 'login';
                 appLog("新用户注册: {$username}");

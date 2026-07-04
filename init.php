@@ -26,6 +26,29 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// --- 不活动超时检测 ---
+if (isLoggedIn()) {
+    $timeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$config['session_timeout_minutes']);
+    if ($timeoutMinutes > 0) {
+        $lastActivity = $_SESSION['last_activity'] ?? 0;
+        if ($lastActivity > 0 && (time() - $lastActivity) > $timeoutMinutes * 60) {
+            appLog("用户 " . currentUsername() . " 因超过 {$timeoutMinutes} 分钟不活动自动登出");
+            logoutUser();
+            // 如果是 API/AJAX 请求，返回 401；否则重定向到首页
+            $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+            if ($isAjax) {
+                http_response_code(401);
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['error' => '会话已超时，请重新登录', 'code' => 'session_timeout']);
+                exit;
+            }
+            header('Location: index.php?timeout=1');
+            exit;
+        }
+        $_SESSION['last_activity'] = time();
+    }
+}
+
 // --- 数据库初始化 ---
 function getDB(): PDO {
     global $config;
@@ -131,8 +154,8 @@ function initDatabase(): void {
     $row = $stmt->fetch();
     if ($row['cnt'] == 0) {
         $hash = password_hash($config['admin_password'], PASSWORD_DEFAULT);
-        $stmt = $db->prepare("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)");
-        $stmt->execute([$config['admin_username'], $hash]);
+        $stmt = $db->prepare("INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, 1, ?)");
+        $stmt->execute([$config['admin_username'], $hash, date('Y-m-d H:i:s')]);
     }
 }
 
@@ -187,8 +210,8 @@ function logLogin(string $username, bool $success, string $detail = ''): void {
         if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
             $ip = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
         }
-        $stmt = $db->prepare("INSERT INTO login_logs (username, ip, success, detail) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$username, $ip, $success ? 1 : 0, $detail]);
+        $stmt = $db->prepare("INSERT INTO login_logs (username, ip, success, detail, created_at) VALUES (?, ?, ?, ?, ?)");
+        $stmt->execute([$username, $ip, $success ? 1 : 0, $detail, date('Y-m-d H:i:s')]);
     } catch (Exception $e) {
         // 日志记录失败不影响主流程
     }

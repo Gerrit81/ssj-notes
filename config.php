@@ -4,7 +4,7 @@
  */
 
 // 应用版本
-$config['app_version'] = '1.9.0';
+$config['app_version'] = '1.10.2';
 
 // 应用名称
 $config['app_name'] = '内网记事本';
@@ -14,6 +14,9 @@ $config['db_path'] = __DIR__ . '/data/notes.db';
 
 // 会话有效期（秒），默认7天
 $config['session_lifetime'] = 604800;
+
+// 不活动自动登出时间（分钟），0 表示不启用，默认30分钟
+$config['session_timeout_minutes'] = 30;
 
 // 管理员初始账号信息（首次初始化时使用）
 $config['admin_username'] = 'admin';

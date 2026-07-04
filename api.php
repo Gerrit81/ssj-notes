@@ -95,8 +95,9 @@ function handleSave(): void {
         jsonResponse(200, ['id' => (int)$noteId, 'message' => '保存成功']);
     } else {
         // 新建
-        $stmt = $db->prepare("INSERT INTO notes (user_id, title, content) VALUES (?, ?, ?)");
-        $stmt->execute([$userId, $title, $content]);
+        $stmt = $db->prepare("INSERT INTO notes (user_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
+        $now = date('Y-m-d H:i:s');
+        $stmt->execute([$userId, $title, $content, $now, $now]);
         $newId = $db->lastInsertId();
         jsonResponse(201, ['id' => (int)$newId, 'message' => '创建成功']);
     }

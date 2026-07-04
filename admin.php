@@ -106,6 +106,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// 处理保存登录超时设置
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_timeout_settings') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $minutes = max(0, min(1440, (int)($_POST['session_timeout_minutes'] ?? 30)));
+        setSetting('session_timeout_minutes', (string)$minutes);
+        if ($minutes === 0) {
+            $message = "自动登出已关闭，会话仅在浏览器关闭或 Cookie 过期后失效。";
+        } else {
+            $message = "不活动自动登出时间已设置为 {$minutes} 分钟。";
+        }
+        $messageType = 'success';
+        appLog("管理员设置不活动自动登出时间: {$minutes} 分钟");
+    }
+}
+
 // 处理手动备份
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'backup') {
     if (!checkCSRF()) {
@@ -158,6 +176,7 @@ $stmt->execute();
 $loginLogs = $stmt->fetchAll();
 
 $recycleBinDays = getSetting('recycle_bin_days', '30');
+$sessionTimeoutMinutes = getSetting('session_timeout_minutes', (string)$config['session_timeout_minutes']);
 $userCount = count($users);
 
 // 备份信息
@@ -443,6 +462,19 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
         .log-badge.success { background: #f6ffed; color: #389e0d; }
         .log-badge.fail { background: #fff2f0; color: #cf1322; }
 
+        /* 模态框 */
+        .modal-overlay { display:none; position:fixed; top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:1000;justify-content:center;align-items:center; }
+        .modal-overlay.show { display:flex; }
+        .modal-box { background:#fff;border-radius:10px;padding:24px 28px;width:400px;max-width:90vw;box-shadow:0 8px 30px rgba(0,0,0,0.15); }
+        .modal-box h3 { margin:0 0 16px 0;font-size:17px;display:flex;align-items:center;gap:8px; }
+        .modal-box .field { margin-bottom:12px; }
+        .modal-box .field label { display:block;margin-bottom:4px;font-size:13px;color:#666; }
+        .modal-box .field input { width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px; }
+        .modal-box .field input:focus { border-color:#667eea;outline:none;box-shadow:0 0 0 2px rgba(102,126,234,0.15); }
+        .modal-actions { display:flex;gap:8px;justify-content:flex-end;margin-top:8px; }
+        .modal-actions button { padding:7px 18px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid #d9d9d9;background:#fff; }
+        .modal-actions .btn-confirm { background:#667eea;color:#fff;border-color:#667eea; }
+
         /* 响应式：小屏变单列 */
         @media (max-width: 768px) {
             .two-col { grid-template-columns: 1fr; }
@@ -464,6 +496,10 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
     <div class="actions">
         <span class="label">管理员</span>
         <span><?= htmlspecialchars(currentUsername()) ?></span>
+        <button class="btn-sm" onclick="openPwdModal()" style="cursor:pointer;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            修改密码
+        </button>
         <a href="logout.php" class="btn-sm">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
             退出
@@ -568,33 +604,6 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
 
     <!-- 双列卡片：修改管理员密码 + 回收站设置 -->
     <div class="two-col">
-        <!-- 修改管理员密码 -->
-        <div class="card">
-            <div class="card-header">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                修改管理员密码
-            </div>
-            <div class="card-body">
-                <form method="post" class="form-compact" style="flex-direction:column;align-items:stretch;gap:10px;">
-                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
-                    <input type="hidden" name="action" value="change_admin_password">
-                    <div class="field">
-                        <label>当前密码</label>
-                        <input type="password" name="old_password" required placeholder="请输入当前密码" autocomplete="off">
-                    </div>
-                    <div class="field">
-                        <label>新密码（至少4位）</label>
-                        <input type="password" name="new_admin_password" required minlength="4" placeholder="请输入新密码" autocomplete="off">
-                    </div>
-                    <div class="field">
-                        <label>确认新密码</label>
-                        <input type="password" name="confirm_password" required placeholder="请再次输入新密码" autocomplete="off">
-                    </div>
-                    <button type="submit" class="btn-primary" style="align-self:flex-start;">修改密码</button>
-                </form>
-            </div>
-        </div>
-
         <!-- 回收站设置 -->
         <div class="card">
             <div class="card-header">
@@ -610,6 +619,32 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
                         <input type="number" name="recycle_bin_days" value="<?= $recycleBinDays ?>" min="1" max="365" required style="width:100px;">
                     </div>
                     <div style="font-size:13px;color:#999;">当前回收站共 <?= $trashCount ?> 条笔记</div>
+                    <button type="submit" class="btn-primary" style="align-self:flex-start;">保存设置</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 登录超时设置 -->
+        <div class="card">
+            <div class="card-header">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#722ed1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                登录超时设置
+            </div>
+            <div class="card-body">
+                <form method="post" class="form-compact" style="flex-direction:column;align-items:stretch;gap:10px;">
+                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                    <input type="hidden" name="action" value="save_timeout_settings">
+                    <div class="field">
+                        <label>不活动自动登出时间（分钟，0 = 关闭）</label>
+                        <input type="number" name="session_timeout_minutes" value="<?= $sessionTimeoutMinutes ?>" min="0" max="1440" required style="width:100px;">
+                    </div>
+                    <div style="font-size:13px;color:#999;">
+                        <?php if ((int)$sessionTimeoutMinutes === 0): ?>
+                            当前：<strong style="color:#722ed1;">已关闭</strong>，只有关闭浏览器或 Cookie（7天）过期后才会登出
+                        <?php else: ?>
+                            当前：超过 <strong style="color:#722ed1;"><?= $sessionTimeoutMinutes ?> 分钟</strong>不操作自动登出（每次操作会刷新计时）
+                        <?php endif; ?>
+                    </div>
                     <button type="submit" class="btn-primary" style="align-self:flex-start;">保存设置</button>
                 </form>
             </div>
@@ -708,7 +743,56 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
     </div>
 </div>
 
+<!-- 修改密码模态框 -->
+<div class="modal-overlay" id="pwdModal">
+    <div class="modal-box">
+        <h3>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            修改管理员密码
+        </h3>
+        <form method="post" id="pwdForm" action="">
+            <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+            <input type="hidden" name="action" value="change_admin_password">
+            <div class="field">
+                <label>当前密码</label>
+                <input type="password" name="old_password" required placeholder="请输入当前密码" autocomplete="off">
+            </div>
+            <div class="field">
+                <label>新密码（至少4位）</label>
+                <input type="password" name="new_admin_password" required minlength="4" placeholder="请输入新密码" autocomplete="off">
+            </div>
+            <div class="field">
+                <label>确认新密码</label>
+                <input type="password" name="confirm_password" required placeholder="请再次输入新密码" autocomplete="off">
+            </div>
+            <div class="modal-actions">
+                <button type="button" onclick="closePwdModal()">取消</button>
+                <button type="submit" class="btn-confirm">修改密码</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
+    function openPwdModal() {
+        document.getElementById('pwdModal').classList.add('show');
+        document.getElementById('pwdForm').querySelector('input[name="old_password"]').focus();
+    }
+    function closePwdModal() {
+        document.getElementById('pwdModal').classList.remove('show');
+        document.getElementById('pwdForm').reset();
+    }
+    // 点击遮罩层关闭
+    document.getElementById('pwdModal').addEventListener('click', function(e) {
+        if (e.target === this) closePwdModal();
+    });
+    // ESC 关闭
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && document.getElementById('pwdModal').classList.contains('show')) {
+            closePwdModal();
+        }
+    });
+
     function toggleReset(userId, username) {
         const form = document.getElementById('resetForm_' + userId);
         if (form) {

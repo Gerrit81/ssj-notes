@@ -2210,7 +2210,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
     function insertSeparator() {
         const ta = document.getElementById('editorContent');
         if (!ta) return;
-        const sep = '\n\n' + '\u2500'.repeat(36) + '\n\n';
+        const sep = '\u2500'.repeat(36) + '\n';
         const start = ta.selectionStart;
         const end = ta.selectionEnd;
         ta.value = ta.value.substring(0, start) + sep + ta.value.substring(end);
