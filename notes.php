@@ -1492,11 +1492,14 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
 
         // 默认打开最后编辑的笔记
         await openLastNote();
+
+        // 启动会话心跳
+        startHeartbeat();
     });
 
     async function openLastNote() {
         try {
-            const res = await fetch('api.php?action=list&page=1');
+            const res = await apiFetch('api.php?action=list&page=1');
             const data = await res.json();
             const notes = data.notes || [];
             if (notes.length > 0) {
@@ -1567,7 +1570,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
             formData.append('font_family', font);
             formData.append('font_size', currentFontSize);
             formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
-            const res = await fetch('api.php?action=setFont', { method: 'POST', body: formData });
+            const res = await apiFetch('api.php?action=setFont', { method: 'POST', body: formData });
             const data = await res.json();
 
             if (data.error) {
@@ -1612,7 +1615,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
             formData.append('font_family', currentFontFamily);
             formData.append('font_size', size);
             formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
-            const res = await fetch('api.php?action=setFont', { method: 'POST', body: formData });
+            const res = await apiFetch('api.php?action=setFont', { method: 'POST', body: formData });
             const data = await res.json();
 
             if (data.error) {
@@ -1672,7 +1675,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
             const formData = new FormData();
             formData.append('skin', skin);
             formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
-            const res = await fetch('api.php?action=setSkin', { method: 'POST', body: formData });
+            const res = await apiFetch('api.php?action=setSkin', { method: 'POST', body: formData });
             const data = await res.json();
 
             if (data.error) {
@@ -1717,7 +1720,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
             const formData = new FormData();
             formData.append('interval', interval);
             formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
-            const res = await fetch('api.php?action=setAutoSave', { method: 'POST', body: formData });
+            const res = await apiFetch('api.php?action=setAutoSave', { method: 'POST', body: formData });
             const data = await res.json();
 
             if (data.error) {
@@ -1781,7 +1784,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
             const url = isSearchMode
                 ? `api.php?action=search&q=${encodeURIComponent(searchKeyword)}`
                 : `api.php?action=list&page=${currentPage}`;
-            const res = await fetch(url);
+            const res = await apiFetch(url);
             const data = await res.json();
             renderNoteList(data);
             renderPagination(data);
@@ -1916,7 +1919,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
     // 打开笔记
     async function openNote(id) {
         try {
-            const res = await fetch(`api.php?action=get&id=${id}`);
+            const res = await apiFetch(`api.php?action=get&id=${id}`);
             const data = await res.json();
             if (data.error) {
                 showToast(data.error, true);
@@ -1954,7 +1957,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
         }
 
         try {
-            const res = await fetch('api.php?action=save', { method: 'POST', body: formData });
+            const res = await apiFetch('api.php?action=save', { method: 'POST', body: formData });
             const data = await res.json();
             if (data.error) {
                 if (!silent) showToast(data.error, true);
@@ -2026,7 +2029,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
             const formData = new FormData();
             formData.append('id', pendingDeleteId);
             formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
-            const res = await fetch('api.php?action=delete', { method: 'POST', body: formData });
+            const res = await apiFetch('api.php?action=delete', { method: 'POST', body: formData });
             const data = await res.json();
             closeConfirm();
             if (data.error) {
@@ -2060,7 +2063,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
 
     async function loadTrash() {
         try {
-            const res = await fetch('api.php?action=trash');
+            const res = await apiFetch('api.php?action=trash');
             const data = await res.json();
             renderTrash(data);
         } catch (e) {
@@ -2109,7 +2112,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
             const formData = new FormData();
             formData.append('id', id);
             formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
-            const res = await fetch('api.php?action=restore', { method: 'POST', body: formData });
+            const res = await apiFetch('api.php?action=restore', { method: 'POST', body: formData });
             const data = await res.json();
             if (data.error) {
                 showToast(data.error, true);
@@ -2140,7 +2143,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
             const formData = new FormData();
             formData.append('id', id);
             formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
-            const res = await fetch('api.php?action=permanent_delete', { method: 'POST', body: formData });
+            const res = await apiFetch('api.php?action=permanent_delete', { method: 'POST', body: formData });
             const data = await res.json();
             if (data.error) {
                 showToast(data.error, true);
@@ -2167,7 +2170,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
         try {
             const formData = new FormData();
             formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
-            const res = await fetch('api.php?action=emptyTrash', { method: 'POST', body: formData });
+            const res = await apiFetch('api.php?action=emptyTrash', { method: 'POST', body: formData });
             const data = await res.json();
             if (data.error) {
                 showToast(data.error, true);
@@ -2252,7 +2255,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
             formData.append('id', currentNoteId);
             formData.append('pinned', newState);
             formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
-            const res = await fetch('api.php?action=togglePin', { method: 'POST', body: formData });
+            const res = await apiFetch('api.php?action=togglePin', { method: 'POST', body: formData });
             const data = await res.json();
             if (data.error) {
                 showToast(data.error, true);
@@ -2279,6 +2282,66 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
             btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>`;
         }
     }
+
+    // ===== 会话有效性管理 =====
+
+    let heartbeatTimer = null;
+    let sessionExpired = false;
+
+    // 会话过期处理
+    function handleSessionExpired() {
+        if (sessionExpired) return;
+        sessionExpired = true;
+        stopAutoSaveTimer();
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        alert('登录会话已过期，请重新登录。');
+        window.location.href = 'index.php?timeout=1';
+    }
+
+    // API 请求包装：自动检测 401 状态码
+    async function apiFetch(url, options = {}) {
+        const res = await fetch(url, options);
+        if (res.status === 401) {
+            handleSessionExpired();
+            throw new Error('SESSION_EXPIRED');
+        }
+        return res;
+    }
+
+    // 检测服务器会话状态
+    async function checkSession() {
+        try {
+            const res = await fetch('api.php?action=status');
+            if (res.status === 401) {
+                handleSessionExpired();
+            }
+        } catch (e) {
+            // 网络错误暂时忽略，由 apiFetch 在各请求中兜底
+        }
+    }
+
+    // 启动心跳定时器（每分钟检查一次）
+    function startHeartbeat() {
+        if (heartbeatTimer) return;
+        heartbeatTimer = setInterval(checkSession, 60000);
+    }
+
+    // bfcache 恢复时重新验证会话
+    window.addEventListener('pageshow', function(e) {
+        if (e.persisted) {
+            // 页面从 bfcache 恢复，重新验证会话
+            checkSession();
+            // 重新加载笔记列表确保数据最新
+            loadNoteList();
+        }
+    });
+
+    // 页面变为可见时也检查一次（用户切换标签页回来）
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden && !sessionExpired) {
+            checkSession();
+        }
+    });
 
 </script>
 </body>

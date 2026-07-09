@@ -12,6 +12,7 @@ if (!isAdminLoggedIn()) {
 
 $message = '';
 $messageType = '';
+$inviteGeneratedCode = '';
 $csrf_token = generateCSRF();
 $db = getDB();
 
@@ -142,6 +143,112 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// 处理部署模式切换（一键预设）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'switch_deploy_mode') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $newMode = $_POST['deploy_mode'] ?? 'intranet';
+        if (!in_array($newMode, ['intranet', 'internet'])) {
+            $message = '无效的部署模式。';
+            $messageType = 'error';
+        } else {
+            if ($newMode === 'intranet') {
+                setSetting('deploy_mode', 'intranet');
+                setSetting('register_mode', 'open');
+                setSetting('password_min_length', '4');
+                setSetting('login_ratelimit_enabled', '0');
+                $message = '已切换为【内网便捷模式】：开放注册、无登录限速、密码最短4位。';
+            } else {
+                setSetting('deploy_mode', 'internet');
+                setSetting('register_mode', 'invite');
+                setSetting('password_min_length', '8');
+                setSetting('login_ratelimit_enabled', '1');
+                $message = '已切换为【外网安全模式】：仅邀请注册、启用登录限速（5次失败锁定15分钟）、密码最短8位。';
+            }
+            $messageType = 'success';
+            appLog("管理员切换部署模式: {$newMode}");
+
+            // 刷新变量
+            $deployMode = $newMode;
+            $registerMode = getRegisterMode();
+            $passwordMinLength = getPasswordMinLength();
+            $ratelimitEnabled = getSetting('login_ratelimit_enabled', '0');
+        }
+    }
+}
+
+// 处理保存安全设置（自定义模式）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_security_settings') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $newRegisterMode = $_POST['register_mode'] ?? 'open';
+        $newPwdMinLen = max(4, min(20, (int)($_POST['password_min_length'] ?? 8)));
+        $newRatelimit = isset($_POST['login_ratelimit_enabled']) ? '1' : '0';
+        $newMaxAttempts = max(3, min(20, (int)($_POST['login_max_attempts'] ?? 5)));
+        $newLockoutMin = max(5, min(60, (int)($_POST['login_lockout_minutes'] ?? 15)));
+
+        if (!in_array($newRegisterMode, ['open', 'invite', 'closed'])) {
+            $newRegisterMode = 'open';
+        }
+
+        setSetting('deploy_mode', 'custom');
+        setSetting('register_mode', $newRegisterMode);
+        setSetting('password_min_length', (string)$newPwdMinLen);
+        setSetting('login_ratelimit_enabled', $newRatelimit);
+        setSetting('login_max_attempts', (string)$newMaxAttempts);
+        setSetting('login_lockout_minutes', (string)$newLockoutMin);
+
+        $message = '安全设置已保存（自定义模式）。';
+        $messageType = 'success';
+        appLog("管理员修改安全设置: 注册模式={$newRegisterMode}, 密码最短={$newPwdMinLen}, 限速={$newRatelimit}");
+
+        // 刷新变量
+        $deployMode = 'custom';
+        $registerMode = $newRegisterMode;
+        $passwordMinLength = $newPwdMinLen;
+        $ratelimitEnabled = $newRatelimit;
+        $loginMaxAttempts = (string)$newMaxAttempts;
+        $loginLockoutMinutes = (string)$newLockoutMin;
+    }
+}
+
+// 处理邀请码生成
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'generate_invite') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $code = generateInviteCode(currentUserId());
+        $inviteGeneratedCode = $code;
+        $message = '邀请码已生成，见下方展示。';
+        $messageType = 'success';
+        appLog("管理员生成邀请码: {$code}");
+        $inviteCodes = getInviteCodes();
+    }
+}
+
+// 处理删除邀请码
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_invite') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $inviteId = (int)($_POST['invite_id'] ?? 0);
+        if (deleteInviteCode($inviteId)) {
+            $message = '邀请码已删除。';
+            $messageType = 'success';
+        } else {
+            $message = '删除失败，邀请码不存在。';
+            $messageType = 'error';
+        }
+        $inviteCodes = getInviteCodes();
+    }
+}
+
 // 获取所有普通用户
 $stmt = $db->prepare("SELECT id, username, created_at FROM users WHERE is_admin = 0 ORDER BY created_at DESC");
 $stmt->execute();
@@ -178,6 +285,16 @@ $loginLogs = $stmt->fetchAll();
 $recycleBinDays = getSetting('recycle_bin_days', '30');
 $sessionTimeoutMinutes = getSetting('session_timeout_minutes', (string)$config['session_timeout_minutes']);
 $userCount = count($users);
+
+// 部署模式相关
+$deployMode = getDeployMode();
+$registerMode = getRegisterMode();
+$passwordMinLength = getPasswordMinLength();
+$ratelimitEnabled = getSetting('login_ratelimit_enabled', '0');
+$loginMaxAttempts = getSetting('login_max_attempts', '5');
+$loginLockoutMinutes = getSetting('login_lockout_minutes', '15');
+$inviteCodes = getInviteCodes();
+$shieldColor = $deployMode === 'internet' ? '#cf1322' : ($deployMode === 'intranet' ? '#389e0d' : '#fa8c16');
 
 // 备份信息
 $backupFiles = getBackupInfo();
@@ -481,6 +598,81 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
             .stats { flex-wrap: wrap; }
             .stat-card { min-width: calc(50% - 8px); }
         }
+
+        /* 部署模式按钮 */
+        .mode-btn {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e8e8e8;
+            border-radius: 10px;
+            background: #fff;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s;
+            font-size: 14px;
+            color: #333;
+        }
+        .mode-btn:hover { border-color: #bbb; }
+        .mode-btn.active { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .mode-btn.intranet.active { border-color: #389e0d; background: #f6ffed; }
+        .mode-btn.internet.active { border-color: #cf1322; background: #fff2f0; }
+
+        .mode-badge {
+            padding: 2px 10px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .mode-badge.intranet { background: #f6ffed; color: #389e0d; }
+        .mode-badge.internet { background: #fff2f0; color: #cf1322; }
+        .mode-badge.custom { background: #fff7e6; color: #fa8c16; }
+
+        /* 邀请码展示 */
+        .invite-code-box {
+            background: #f0f5ff;
+            border: 1px solid #adc6ff;
+            border-radius: 8px;
+            padding: 14px 18px;
+            margin-bottom: 20px;
+        }
+        .invite-code-label {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        .invite-code-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .invite-code-text {
+            flex: 1;
+            background: #fff;
+            border: 1px solid #d0d5dd;
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+            font-size: 18px;
+            letter-spacing: 3px;
+            color: #1d39c4;
+            user-select: all;
+        }
+        .invite-copy-btn {
+            padding: 10px 18px;
+            background: #1d39c4;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.2s;
+        }
+        .invite-copy-btn:hover { background: #13289c; }
+        .invite-copy-btn.copied { background: #389e0d; }
     </style>
 </head>
 <body>
@@ -515,6 +707,16 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
         <div class="message <?= $messageType ?>"><?= htmlspecialchars($message) ?></div>
     <?php endif; ?>
 
+    <?php if ($inviteGeneratedCode): ?>
+    <div class="invite-code-box">
+        <div class="invite-code-label">邀请码已生成，请复制并发送给需要注册的用户：</div>
+        <div class="invite-code-row">
+            <code class="invite-code-text"><?= htmlspecialchars($inviteGeneratedCode) ?></code>
+            <button class="invite-copy-btn" onclick="copyInviteCode(this)">📋 复制</button>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <!-- 统计卡片 -->
     <div class="stats">
         <div class="stat-card">
@@ -538,6 +740,155 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
             <div class="label">失败登录</div>
         </div>
     </div>
+
+    <!-- 部署模式 -->
+    <div class="card">
+        <div class="card-header" style="justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="<?= $shieldColor ?>" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                部署模式
+                <?php if ($deployMode === 'intranet'): ?>
+                    <span class="mode-badge intranet">内网便捷</span>
+                <?php elseif ($deployMode === 'internet'): ?>
+                    <span class="mode-badge internet">外网安全</span>
+                <?php else: ?>
+                    <span class="mode-badge custom">自定义</span>
+                <?php endif; ?>
+            </div>
+        </div>
+        <div class="card-body">
+            <!-- 一键切换按钮 -->
+            <div style="display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap;">
+                <form method="post" style="margin:0;flex:1;min-width:200px;">
+                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                    <input type="hidden" name="action" value="switch_deploy_mode">
+                    <input type="hidden" name="deploy_mode" value="intranet">
+                    <button type="submit" class="mode-btn intranet <?= $deployMode === 'intranet' ? 'active' : '' ?>">
+                        <span style="font-size:18px;">🏠</span>
+                        <span>
+                            <strong>内网便捷模式</strong>
+                            <small style="display:block;margin-top:2px;">开放注册 · 无登录限速 · 密码最短4位</small>
+                        </span>
+                    </button>
+                </form>
+                <form method="post" style="margin:0;flex:1;min-width:200px;">
+                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                    <input type="hidden" name="action" value="switch_deploy_mode">
+                    <input type="hidden" name="deploy_mode" value="internet">
+                    <button type="submit" class="mode-btn internet <?= $deployMode === 'internet' ? 'active' : '' ?>">
+                        <span style="font-size:18px;">🔒</span>
+                        <span>
+                            <strong>外网安全模式</strong>
+                            <small style="display:block;margin-top:2px;">邀请注册 · 登录限速 · 密码最短8位</small>
+                        </span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- 自定义设置 (展开/折叠) -->
+            <details <?= $deployMode === 'custom' ? 'open' : '' ?> style="background:#fafbff;border:1px solid #e8ebff;border-radius:8px;padding:16px 18px;">
+                <summary style="font-weight:600;font-size:14px;cursor:pointer;color:#555;">自定义安全设置</summary>
+                <form method="post" style="margin-top:14px;">
+                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                    <input type="hidden" name="action" value="save_security_settings">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 24px;">
+                        <div class="field">
+                            <label>注册模式</label>
+                            <select name="register_mode" style="width:100%;padding:8px 12px;border:1px solid #e0e0e0;border-radius:6px;font-size:14px;outline:none;">
+                                <option value="open" <?= $registerMode === 'open' ? 'selected' : '' ?>>开放注册（任何人可注册）</option>
+                                <option value="invite" <?= $registerMode === 'invite' ? 'selected' : '' ?>>邀请注册（需邀请码）</option>
+                                <option value="closed" <?= $registerMode === 'closed' ? 'selected' : '' ?>>关闭注册（仅管理员可创建）</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>密码最短长度（4-20位）</label>
+                            <input type="number" name="password_min_length" value="<?= $passwordMinLength ?>" min="4" max="20" required style="width:100%;padding:8px 12px;border:1px solid #e0e0e0;border-radius:6px;font-size:14px;outline:none;">
+                        </div>
+                        <div class="field">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" name="login_ratelimit_enabled" <?= $ratelimitEnabled ? 'checked' : '' ?> style="width:auto;">
+                                启用登录限速
+                            </label>
+                        </div>
+                        <div class="field" style="display:flex;gap:12px;">
+                            <div>
+                                <label style="font-size:12px;">最大失败次数</label>
+                                <input type="number" name="login_max_attempts" value="<?= $loginMaxAttempts ?>" min="3" max="20" required style="width:80px;padding:8px 12px;border:1px solid #e0e0e0;border-radius:6px;font-size:14px;outline:none;">
+                            </div>
+                            <div>
+                                <label style="font-size:12px;">锁定时间（分钟）</label>
+                                <input type="number" name="login_lockout_minutes" value="<?= $loginLockoutMinutes ?>" min="5" max="60" required style="width:80px;padding:8px 12px;border:1px solid #e0e0e0;border-radius:6px;font-size:14px;outline:none;">
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary" style="margin-top:14px;">保存自定义设置</button>
+                </form>
+            </details>
+        </div>
+    </div>
+
+    <!-- 邀请码管理（仅在邀请模式下显示） -->
+    <?php if ($registerMode === 'invite'): ?>
+    <div class="card">
+        <div class="card-header" style="justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#722ed1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                邀请码管理
+                <span style="font-size:12px;color:#999;">（<?= count($inviteCodes) ?> 个）</span>
+            </div>
+            <form method="post" style="margin:0;display:inline;">
+                <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                <input type="hidden" name="action" value="generate_invite">
+                <button type="submit" class="btn-sm" style="color:#722ed1;border-color:#722ed1;">+ 生成邀请码</button>
+            </form>
+        </div>
+        <div class="card-body" style="padding:0;">
+            <?php if (empty($inviteCodes)): ?>
+                <div class="empty-hint" style="padding:24px;color:#ccc;">暂无邀请码，点击上方按钮生成</div>
+            <?php else: ?>
+                <table class="log-table">
+                    <thead>
+                        <tr>
+                            <th>邀请码</th>
+                            <th>状态</th>
+                            <th>使用者</th>
+                            <th>使用时间</th>
+                            <th>生成时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($inviteCodes as $ic): ?>
+                        <tr>
+                            <td style="font-family:monospace;letter-spacing:2px;"><?= htmlspecialchars($ic['code']) ?></td>
+                            <td>
+                                <?php if ($ic['used_by']): ?>
+                                    <span class="log-badge fail">已使用</span>
+                                <?php else: ?>
+                                    <span class="log-badge success">可用</span>
+                                <?php endif; ?>
+                            </td>
+                            <td><?= $ic['used_username'] ? htmlspecialchars($ic['used_username']) : '-' ?></td>
+                            <td style="font-size:12px;color:#888;"><?= $ic['used_at'] ? substr($ic['used_at'], 0, 16) : '-' ?></td>
+                            <td style="font-size:12px;color:#888;"><?= substr($ic['created_at'], 0, 16) ?></td>
+                            <td>
+                                <?php if (!$ic['used_by']): ?>
+                                <form method="post" style="margin:0;display:inline;">
+                                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                                    <input type="hidden" name="action" value="delete_invite">
+                                    <input type="hidden" name="invite_id" value="<?= $ic['id'] ?>">
+                                    <button type="submit" class="btn-sm" style="color:#cf1322;border-color:#ffccc7;font-size:12px;" onclick="return confirm('确定删除此邀请码？')">删除</button>
+                                </form>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- 用户管理 -->
     <div class="card">
@@ -798,6 +1149,27 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
         if (form) {
             form.classList.toggle('show');
         }
+    }
+
+    function copyInviteCode(btn) {
+        const codeEl = btn.parentElement.querySelector('.invite-code-text');
+        const code = codeEl.textContent;
+        navigator.clipboard.writeText(code).then(function() {
+            const originalText = btn.textContent;
+            btn.textContent = '✓ 已复制';
+            btn.classList.add('copied');
+            setTimeout(function() {
+                btn.textContent = originalText;
+                btn.classList.remove('copied');
+            }, 2000);
+        }).catch(function() {
+            // 兜底：选中文本
+            const range = document.createRange();
+            range.selectNode(codeEl);
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
+            alert('请按 Ctrl+C 复制邀请码');
+        });
     }
 </script>
 </body>

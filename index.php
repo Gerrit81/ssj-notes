@@ -18,6 +18,10 @@ $error = '';
 $success = '';
 $mode = $_GET['mode'] ?? 'login';
 
+// 获取部署模式相关设置
+$registerMode = getRegisterMode();
+$passwordMinLength = getPasswordMinLength();
+
 // 处理登录
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'login') {
     if (!checkCSRF()) {
@@ -26,7 +30,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $username = trim($_POST['username'] ?? '');
         $password = $_POST['password'] ?? '';
 
-        if ($username === '' || $password === '') {
+        // 获取客户端 IP 用于限速检查
+        $clientIp = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            $clientIp = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
+        }
+
+        // 登录限速检查
+        if (isLoginLockedOut($clientIp)) {
+            $remaining = getLoginLockoutRemaining($clientIp);
+            $minutes = ceil($remaining / 60);
+            $error = "登录尝试过于频繁，请 {$minutes} 分钟后再试。";
+        } elseif ($username === '' || $password === '') {
             $error = '请输入用户名和密码。';
         } else {
             $db = getDB();
@@ -57,36 +72,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'register') {
     if (!checkCSRF()) {
         $error = '安全校验失败，请刷新页面重试。';
+    } elseif ($registerMode === 'closed') {
+        $error = '当前系统不允许注册新账号。';
     } else {
         $username = trim($_POST['username'] ?? '');
         $password = $_POST['password'] ?? '';
         $password2 = $_POST['password2'] ?? '';
+        $inviteCode = trim($_POST['invite_code'] ?? '');
 
-        if ($username === '' || $password === '' || $password2 === '') {
-            $error = '请填写所有字段。';
-        } elseif (mb_strlen($username) < 2 || mb_strlen($username) > 30) {
-            $error = '用户名长度需在2-30个字符之间。';
-        } elseif (!preg_match('/^[a-zA-Z0-9_\x{4e00}-\x{9fa5}]+$/u', $username)) {
-            $error = '用户名只能包含字母、数字、下划线和中文。';
-        } elseif (strlen($password) < 4) {
-            $error = '密码长度不能少于4位。';
-        } elseif ($password !== $password2) {
-            $error = '两次输入的密码不一致。';
-        } else {
-            $db = getDB();
-            // 检查用户名是否已存在
-            $stmt = $db->prepare("SELECT COUNT(*) as cnt FROM users WHERE username = ?");
-            $stmt->execute([$username]);
-            $row = $stmt->fetch();
-            if ($row['cnt'] > 0) {
-                $error = '该用户名已被注册。';
+        // 邀请模式检查
+        if ($registerMode === 'invite') {
+            if ($inviteCode === '') {
+                $error = '当前为邀请注册模式，请输入有效的邀请码。';
+            } elseif (!isValidInviteCode($inviteCode)) {
+                $error = '邀请码无效或已被使用。';
+            }
+        }
+
+        if (!$error) {
+            if ($username === '' || $password === '' || $password2 === '') {
+                $error = '请填写所有字段。';
+            } elseif (mb_strlen($username) < 2 || mb_strlen($username) > 30) {
+                $error = '用户名长度需在2-30个字符之间。';
+            } elseif (!preg_match('/^[a-zA-Z0-9_\x{4e00}-\x{9fa5}]+$/u', $username)) {
+                $error = '用户名只能包含字母、数字、下划线和中文。';
+            } elseif (strlen($password) < $passwordMinLength) {
+                $error = "密码长度不能少于{$passwordMinLength}位。";
+            } elseif ($password !== $password2) {
+                $error = '两次输入的密码不一致。';
             } else {
-                $hash = password_hash($password, PASSWORD_DEFAULT);
-                $stmt = $db->prepare("INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, 0, ?)");
-                $stmt->execute([$username, $hash, date('Y-m-d H:i:s')]);
-                $success = '注册成功！请使用新账号登录。';
-                $mode = 'login';
-                appLog("新用户注册: {$username}");
+                $db = getDB();
+                // 检查用户名是否已存在
+                $stmt = $db->prepare("SELECT COUNT(*) as cnt FROM users WHERE username = ?");
+                $stmt->execute([$username]);
+                $row = $stmt->fetch();
+                if ($row['cnt'] > 0) {
+                    $error = '该用户名已被注册。';
+                } else {
+                    $hash = password_hash($password, PASSWORD_DEFAULT);
+                    $stmt = $db->prepare("INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, 0, ?)");
+                    $stmt->execute([$username, $hash, date('Y-m-d H:i:s')]);
+                    $newUserId = $db->lastInsertId();
+
+                    // 邀请模式：使用邀请码
+                    if ($registerMode === 'invite' && $inviteCode !== '') {
+                        useInviteCode($inviteCode, (int)$newUserId);
+                    }
+
+                    $success = '注册成功！请使用新账号登录。';
+                    $mode = 'login';
+                    appLog("新用户注册: {$username}");
+                }
             }
         }
     }
@@ -263,7 +299,9 @@ $csrf_token = generateCSRF();
     <div class="body">
         <div class="tabs">
             <a href="?mode=login" class="<?= $mode === 'login' ? 'active' : '' ?>">登录</a>
+            <?php if ($registerMode !== 'closed'): ?>
             <a href="?mode=register" class="<?= $mode === 'register' ? 'active' : '' ?>">注册</a>
+            <?php endif; ?>
         </div>
 
         <?php if ($error): ?>
@@ -297,12 +335,18 @@ $csrf_token = generateCSRF();
                 </div>
                 <div class="form-group">
                     <label for="reg_password">密码</label>
-                    <input type="password" id="reg_password" name="password" autocomplete="new-password" required placeholder="至少4位">
+                    <input type="password" id="reg_password" name="password" autocomplete="new-password" required placeholder="至少<?= $passwordMinLength ?>位">
                 </div>
                 <div class="form-group">
                     <label for="reg_password2">确认密码</label>
                     <input type="password" id="reg_password2" name="password2" autocomplete="new-password" required placeholder="再次输入密码">
                 </div>
+                <?php if ($registerMode === 'invite'): ?>
+                <div class="form-group">
+                    <label for="invite_code">邀请码</label>
+                    <input type="text" id="invite_code" name="invite_code" autocomplete="off" required placeholder="请输入管理员提供的邀请码" style="font-family:monospace;letter-spacing:2px;">
+                </div>
+                <?php endif; ?>
                 <button type="submit" class="btn">注 册</button>
             </form>
         <?php endif; ?>

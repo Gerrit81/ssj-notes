@@ -66,6 +66,9 @@ switch ($action) {
     case 'togglePin':
         handleTogglePin();
         break;
+    case 'status':
+        handleStatus();
+        break;
     default:
         jsonResponse(400, ['error' => '未知操作']);
 }
@@ -87,8 +90,8 @@ function handleSave(): void {
 
     if ($noteId) {
         // 更新
-        $stmt = $db->prepare("UPDATE notes SET title = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?");
-        $stmt->execute([$title, $content, $noteId, $userId]);
+        $stmt = $db->prepare("UPDATE notes SET title = ?, content = ?, updated_at = ? WHERE id = ? AND user_id = ?");
+        $stmt->execute([$title, $content, date('Y-m-d H:i:s'), $noteId, $userId]);
         if ($stmt->rowCount() === 0) {
             jsonResponse(404, ['error' => '笔记不存在']);
         }
@@ -180,8 +183,8 @@ function handleDelete(): void {
     $noteId = $_POST['id'] ?? 0;
 
     $db = getDB();
-    $stmt = $db->prepare("UPDATE notes SET deleted = 1, deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND deleted = 0");
-    $stmt->execute([$noteId, $userId]);
+    $stmt = $db->prepare("UPDATE notes SET deleted = 1, deleted_at = ? WHERE id = ? AND user_id = ? AND deleted = 0");
+    $stmt->execute([date('Y-m-d H:i:s'), $noteId, $userId]);
 
     if ($stmt->rowCount() === 0) {
         jsonResponse(404, ['error' => '笔记不存在或已在回收站中']);
@@ -197,8 +200,8 @@ function handleRestore(): void {
     $noteId = $_POST['id'] ?? 0;
 
     $db = getDB();
-    $stmt = $db->prepare("UPDATE notes SET deleted = 0, deleted_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND deleted = 1");
-    $stmt->execute([$noteId, $userId]);
+    $stmt = $db->prepare("UPDATE notes SET deleted = 0, deleted_at = NULL, updated_at = ? WHERE id = ? AND user_id = ? AND deleted = 1");
+    $stmt->execute([date('Y-m-d H:i:s'), $noteId, $userId]);
 
     if ($stmt->rowCount() === 0) {
         jsonResponse(404, ['error' => '笔记不存在或不在回收站中']);
@@ -406,6 +409,18 @@ function handleSetAutoSave(): void {
 
     $label = $interval === 0 ? '已关闭' : "{$interval} 分钟";
     jsonResponse(200, ['message' => '自动保存设置成功', 'interval' => $interval, 'label' => $label]);
+}
+
+/** 检查会话状态（前端心跳用） */
+function handleStatus(): void {
+    $userId = currentUserId();
+    if (!$userId) {
+        jsonResponse(401, ['error' => '会话已过期']);
+    }
+    if (isAdmin()) {
+        jsonResponse(200, ['username' => currentUsername(), 'is_admin' => true]);
+    }
+    jsonResponse(200, ['username' => currentUsername(), 'is_admin' => false]);
 }
 
 // --- 工具函数 ---

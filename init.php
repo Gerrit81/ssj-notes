@@ -138,9 +138,28 @@ function initDatabase(): void {
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )");
 
+    // 邀请码表
+    $db->exec("CREATE TABLE IF NOT EXISTS invite_codes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        used_by INTEGER DEFAULT NULL,
+        used_at DATETIME DEFAULT NULL,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME NOT NULL,
+        FOREIGN KEY (used_by) REFERENCES users(id),
+        FOREIGN KEY (created_by) REFERENCES users(id)
+    )");
+
     // 初始化默认设置
     $defaults = [
         'recycle_bin_days' => '30',
+        // --- 部署模式设置 ---
+        'deploy_mode' => 'intranet',           // intranet | internet | custom
+        'register_mode' => 'open',             // open | invite | closed
+        'password_min_length' => '4',          // 密码最小长度
+        'login_ratelimit_enabled' => '0',      // 登录限速开关
+        'login_max_attempts' => '5',           // 最大失败次数
+        'login_lockout_minutes' => '15',       // 锁定分钟数
     ];
     foreach ($defaults as $k => $v) {
         $stmt = $db->prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
@@ -345,6 +364,121 @@ function doBackup(): array {
         foreach ($toDelete as $file) { @unlink($file); }
     }
     return ['success' => true, 'file' => $backupFile, 'size' => $size, 'message' => '备份成功'];
+}
+
+// --- 部署模式 ---
+
+/** 获取部署模式 */
+function getDeployMode(): string {
+    return getSetting('deploy_mode', 'intranet');
+}
+
+/** 获取注册模式 */
+function getRegisterMode(): string {
+    return getSetting('register_mode', 'open');
+}
+
+/** 检查是否允许开放注册 */
+function isRegisterOpen(): bool {
+    return getRegisterMode() === 'open';
+}
+
+/** 获取密码最小长度 */
+function getPasswordMinLength(): int {
+    return max(4, min(20, (int)getSetting('password_min_length', '4')));
+}
+
+// --- 登录限速 ---
+
+/** 检查登录是否被限速锁定 */
+function isLoginLockedOut(string $ip): bool {
+    if (!getSetting('login_ratelimit_enabled', '0')) {
+        return false;
+    }
+    $maxAttempts = (int)getSetting('login_max_attempts', '5');
+    $lockoutMinutes = (int)getSetting('login_lockout_minutes', '15');
+
+    $db = getDB();
+    $stmt = $db->prepare("SELECT COUNT(*) as cnt, MAX(created_at) as last_fail
+        FROM login_logs WHERE ip = ? AND success = 0
+        AND created_at > datetime('now', ?)");
+    $stmt->execute([$ip, "-{$lockoutMinutes} minutes"]);
+    $row = $stmt->fetch();
+
+    if ($row['cnt'] >= $maxAttempts) {
+        $lastFail = strtotime($row['last_fail']);
+        $unlockAt = $lastFail + ($lockoutMinutes * 60);
+        if (time() < $unlockAt) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** 获取登录锁定剩余秒数 */
+function getLoginLockoutRemaining(string $ip): int {
+    $lockoutMinutes = (int)getSetting('login_lockout_minutes', '15');
+
+    $db = getDB();
+    $stmt = $db->prepare("SELECT MAX(created_at) as last_fail
+        FROM login_logs WHERE ip = ? AND success = 0
+        AND created_at > datetime('now', ?)");
+    $stmt->execute([$ip, "-{$lockoutMinutes} minutes"]);
+    $row = $stmt->fetch();
+
+    if ($row['last_fail']) {
+        $lastFail = strtotime($row['last_fail']);
+        $unlockAt = $lastFail + ($lockoutMinutes * 60);
+        $remaining = $unlockAt - time();
+        return max(0, $remaining);
+    }
+    return 0;
+}
+
+// --- 邀请码 ---
+
+/** 验证邀请码是否有效（未使用） */
+function isValidInviteCode(string $code): bool {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT COUNT(*) as cnt FROM invite_codes WHERE code = ? AND used_by IS NULL");
+    $stmt->execute([$code]);
+    return $stmt->fetch()['cnt'] > 0;
+}
+
+/** 使用邀请码（注册时调用） */
+function useInviteCode(string $code, int $userId): bool {
+    $db = getDB();
+    $stmt = $db->prepare("UPDATE invite_codes SET used_by = ?, used_at = ? WHERE code = ? AND used_by IS NULL");
+    $stmt->execute([$userId, date('Y-m-d H:i:s'), $code]);
+    return $stmt->rowCount() > 0;
+}
+
+/** 生成邀请码 */
+function generateInviteCode(int $createdBy): string {
+    $db = getDB();
+    $code = substr(bin2hex(random_bytes(8)), 0, 12);
+    $stmt = $db->prepare("INSERT INTO invite_codes (code, created_by, created_at) VALUES (?, ?, ?)");
+    $stmt->execute([$code, $createdBy, date('Y-m-d H:i:s')]);
+    return $code;
+}
+
+/** 获取所有邀请码列表 */
+function getInviteCodes(): array {
+    $db = getDB();
+    $stmt = $db->query("SELECT ic.*, u.username as used_username, cu.username as created_username
+        FROM invite_codes ic
+        LEFT JOIN users u ON ic.used_by = u.id
+        LEFT JOIN users cu ON ic.created_by = cu.id
+        ORDER BY ic.created_at DESC");
+    return $stmt->fetchAll();
+}
+
+/** 删除邀请码 */
+function deleteInviteCode(int $id): bool {
+    $db = getDB();
+    $stmt = $db->prepare("DELETE FROM invite_codes WHERE id = ?");
+    $stmt->execute([$id]);
+    return $stmt->rowCount() > 0;
 }
 
 /** 获取备份信息 */
