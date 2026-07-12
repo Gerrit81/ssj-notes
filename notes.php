@@ -22,6 +22,7 @@ $currentSkin = $_SESSION['skin'] ?? 'default';
 $currentFontFamily = $_SESSION['font_family'] ?? 'default';
 $currentFontSize = $_SESSION['font_size'] ?? 15;
 $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
+$sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$config['session_timeout_minutes']);
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -29,6 +30,7 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= $csrf_token ?>">
+    <meta name="session-timeout" content="<?= $sessionTimeoutMinutes ?>">
     <title><?= $config['app_name'] ?> - <?= htmlspecialchars($username) ?></title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23667eea'/><rect x='20' y='25' width='60' height='12' rx='2' fill='white' opacity='0.9'/><rect x='20' y='42' width='50' height='8' rx='2' fill='white' opacity='0.7'/><rect x='20' y='54' width='40' height='8' rx='2' fill='white' opacity='0.7'/><rect x='20' y='66' width='55' height='8' rx='2' fill='white' opacity='0.7'/></svg>" type="image/svg+xml">
     <style>
@@ -1493,8 +1495,8 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
         // 默认打开最后编辑的笔记
         await openLastNote();
 
-        // 启动会话心跳
-        startHeartbeat();
+        // 启动空闲检测
+        startIdleTimer();
     });
 
     async function openLastNote() {
@@ -2283,22 +2285,33 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
         }
     }
 
-    // ===== 会话有效性管理 =====
+    // ===== 会话超时管理（客户端空闲计时器，秒级精度） =====
 
-    let heartbeatTimer = null;
+    const SESSION_TIMEOUT_MINUTES = parseInt(document.querySelector('meta[name="session-timeout"]').content) || 30;
+    const IDLE_LIMIT = SESSION_TIMEOUT_MINUTES * 60; // 空闲秒数上限
+
     let sessionExpired = false;
+    let idleSeconds = 0;
+    let idleTimer = null;
 
-    // 会话过期处理
+    // 任何键鼠/触屏操作 → 空闲计时归零
+    function resetIdle() {
+        idleSeconds = 0;
+    }
+    ['keydown', 'mousedown', 'mousemove', 'scroll', 'touchstart', 'input', 'click'].forEach(function(evt) {
+        document.addEventListener(evt, resetIdle, { passive: true });
+    });
+
+    // 会话过期：立即跳转，杜绝内容泄漏
     function handleSessionExpired() {
         if (sessionExpired) return;
         sessionExpired = true;
         stopAutoSaveTimer();
-        if (heartbeatTimer) clearInterval(heartbeatTimer);
-        alert('登录会话已过期，请重新登录。');
+        stopIdleTimer();
         window.location.href = 'index.php?timeout=1';
     }
 
-    // API 请求包装：自动检测 401 状态码
+    // API 请求包装：自动检测 401
     async function apiFetch(url, options = {}) {
         const res = await fetch(url, options);
         if (res.status === 401) {
@@ -2308,40 +2321,44 @@ $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
         return res;
     }
 
-    // 检测服务器会话状态
-    async function checkSession() {
-        try {
-            const res = await fetch('api.php?action=status');
-            if (res.status === 401) {
-                handleSessionExpired();
-            }
-        } catch (e) {
-            // 网络错误暂时忽略，由 apiFetch 在各请求中兜底
+    // 每秒检查空闲计时
+    function idleTick() {
+        if (sessionExpired) return;
+        idleSeconds++;
+        if (idleSeconds >= IDLE_LIMIT) {
+            handleSessionExpired();
         }
     }
 
-    // 启动心跳定时器（每分钟检查一次）
-    function startHeartbeat() {
-        if (heartbeatTimer) return;
-        heartbeatTimer = setInterval(checkSession, 60000);
+    // 启动空闲检测
+    function startIdleTimer() {
+        stopIdleTimer();
+        idleSeconds = 0;
+        idleTimer = setInterval(idleTick, 1000);
     }
 
-    // bfcache 恢复时重新验证会话
+    // 停止空闲检测
+    function stopIdleTimer() {
+        if (idleTimer) {
+            clearInterval(idleTimer);
+            idleTimer = null;
+        }
+    }
+
+    // bfcache 恢复
     window.addEventListener('pageshow', function(e) {
-        if (e.persisted) {
-            // 页面从 bfcache 恢复，重新验证会话
-            checkSession();
-            // 重新加载笔记列表确保数据最新
+        if (e.persisted && !sessionExpired) {
             loadNoteList();
         }
     });
 
-    // 页面变为可见时也检查一次（用户切换标签页回来）
+    // 标签页切回 → 重置计时（防止切回后立即被判超时）
     document.addEventListener('visibilitychange', function() {
         if (!document.hidden && !sessionExpired) {
-            checkSession();
+            resetIdle();
         }
     });
+
 
 </script>
 </body>

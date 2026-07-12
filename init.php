@@ -31,11 +31,12 @@ if (isLoggedIn()) {
     $timeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$config['session_timeout_minutes']);
     if ($timeoutMinutes > 0) {
         $lastActivity = $_SESSION['last_activity'] ?? 0;
-        if ($lastActivity > 0 && (time() - $lastActivity) > $timeoutMinutes * 60) {
+        if ($lastActivity > 0 && (time() - $lastActivity) >= $timeoutMinutes * 60) {
             appLog("用户 " . currentUsername() . " 因超过 {$timeoutMinutes} 分钟不活动自动登出");
             logoutUser();
             // 如果是 API/AJAX 请求，返回 401；否则重定向到首页
-            $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+            $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
+                || (defined('API_REQUEST') && API_REQUEST);
             if ($isAjax) {
                 http_response_code(401);
                 header('Content-Type: application/json; charset=utf-8');

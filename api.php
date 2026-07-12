@@ -2,6 +2,7 @@
 /**
  * 内网记事本 - API 接口
  */
+define('API_REQUEST', true);
 require_once __DIR__ . '/init.php';
 
 // 必须登录才能访问

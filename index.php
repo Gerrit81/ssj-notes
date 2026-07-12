@@ -16,7 +16,13 @@ if (isLoggedIn()) {
 
 $error = '';
 $success = '';
+$notice = '';
 $mode = $_GET['mode'] ?? 'login';
+
+// 超时跳转提示
+if (isset($_GET['timeout']) && $_GET['timeout'] === '1') {
+    $notice = '登录会话已过期，请重新登录。';
+}
 
 // 获取部署模式相关设置
 $registerMode = getRegisterMode();
@@ -259,6 +265,11 @@ $csrf_token = generateCSRF();
             color: #389e0d;
             border: 1px solid #b7eb8f;
         }
+        .message.info {
+            background: #fffbe6;
+            color: #ad6800;
+            border: 1px solid #ffe58f;
+        }
         .footer {
             text-align: center;
             padding: 0 32px 24px;
@@ -309,6 +320,9 @@ $csrf_token = generateCSRF();
         <?php endif; ?>
         <?php if ($success): ?>
             <div class="message success"><?= htmlspecialchars($success) ?></div>
+        <?php endif; ?>
+        <?php if ($notice): ?>
+            <div class="message info"><?= htmlspecialchars($notice) ?></div>
         <?php endif; ?>
 
         <?php if ($mode === 'login'): ?>
