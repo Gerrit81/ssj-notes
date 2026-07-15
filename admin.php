@@ -249,6 +249,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// 处理清理登录日志（按日期）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'clean_logs_date') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $beforeDate = trim($_POST['clean_before_date'] ?? '');
+        if (empty($beforeDate)) {
+            $message = '请选择清理日期。';
+            $messageType = 'error';
+        } else {
+            $stmt = $db->prepare("DELETE FROM login_logs WHERE created_at < ?");
+            $stmt->execute([$beforeDate . ' 00:00:00']);
+            $count = $stmt->rowCount();
+            $message = "已清理 {$beforeDate} 之前的 {$count} 条登录日志。";
+            $messageType = 'success';
+            appLog("管理员清理登录日志: {$beforeDate} 之前，共 {$count} 条");
+        }
+    }
+}
+
+// 处理清理登录日志（按数量）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'clean_logs_count') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $keepCount = max(1, (int)($_POST['keep_count'] ?? 100));
+        // 先查出第 N 条的时间戳，删除比它更早的
+        $stmt = $db->prepare("SELECT created_at FROM login_logs ORDER BY created_at DESC LIMIT 1 OFFSET ?");
+        $stmt->execute([$keepCount - 1]);
+        $cutoff = $stmt->fetch();
+        if ($cutoff) {
+            $stmt = $db->prepare("DELETE FROM login_logs WHERE created_at < ?");
+            $stmt->execute([$cutoff['created_at']]);
+            $count = $stmt->rowCount();
+            $message = "已清理 {$count} 条登录日志，保留最新 {$keepCount} 条。";
+            $messageType = 'success';
+            appLog("管理员清理登录日志: 保留最新 {$keepCount} 条，删除 {$count} 条");
+        } else {
+            $message = "当前日志数量不足 {$keepCount} 条，无需清理。";
+            $messageType = 'error';
+        }
+    }
+}
+
+// 处理清理数据库备份
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'clean_backups') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $keepDays = max(1, (int)($_POST['keep_days'] ?? 30));
+        $backupDir = __DIR__ . '/data/backups';
+        $cutoff = time() - ($keepDays * 86400);
+        $deleted = 0;
+        if (is_dir($backupDir)) {
+            foreach (glob($backupDir . '/notes_*.db') as $file) {
+                if (filemtime($file) < $cutoff) {
+                    if (@unlink($file)) {
+                        $deleted++;
+                    }
+                }
+            }
+        }
+        $message = "已清理 {$keepDays} 天前的 {$deleted} 个备份文件。";
+        $messageType = 'success';
+        appLog("管理员清理备份: {$keepDays} 天前，共 {$deleted} 个文件");
+    }
+}
+
 // 获取所有普通用户
 $stmt = $db->prepare("SELECT id, username, created_at FROM users WHERE is_admin = 0 ORDER BY created_at DESC");
 $stmt->execute();
@@ -277,9 +348,21 @@ $stmt = $db->prepare("SELECT COUNT(*) as cnt FROM login_logs WHERE success = 0")
 $stmt->execute();
 $loginFailCount = $stmt->fetch()['cnt'];
 
-// 最近登录日志（最近50条）
-$stmt = $db->prepare("SELECT * FROM login_logs ORDER BY created_at DESC LIMIT 50");
+// 登录日志分页
+$logPerPageOpts = [20, 50, 100];
+$logPerPage = isset($_GET['log_per_page']) ? (int)$_GET['log_per_page'] : 20;
+if (!in_array($logPerPage, $logPerPageOpts)) $logPerPage = 20;
+$logPage = max(1, (int)($_GET['log_page'] ?? 1));
+
+$stmt = $db->prepare("SELECT COUNT(*) as cnt FROM login_logs");
 $stmt->execute();
+$logTotal = (int)$stmt->fetch()['cnt'];
+$logTotalPages = max(1, (int)ceil($logTotal / $logPerPage));
+if ($logPage > $logTotalPages) $logPage = $logTotalPages;
+$logOffset = ($logPage - 1) * $logPerPage;
+
+$stmt = $db->prepare("SELECT * FROM login_logs ORDER BY created_at DESC LIMIT ? OFFSET ?");
+$stmt->execute([$logPerPage, $logOffset]);
 $loginLogs = $stmt->fetchAll();
 
 $recycleBinDays = getSetting('recycle_bin_days', '30');
@@ -1029,7 +1112,7 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
                 </div>
             </div>
             <?php if (!empty($backupFiles)): ?>
-                <div style="max-height:150px;overflow:auto;border:1px solid #f0f0f5;border-radius:6px;">
+                <div style="max-height:150px;overflow:auto;border:1px solid #f0f0f5;border-radius:6px;margin-bottom:12px;">
                     <table style="width:100%;border-collapse:collapse;font-size:12px;">
                     <?php foreach (array_slice($backupFiles, 0, 10) as $f): ?>
                         <tr style="border-bottom:1px solid #f5f5f5;">
@@ -1044,15 +1127,40 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
                     </table>
                 </div>
             <?php endif; ?>
+            <?php if ($backupCount > 0): ?>
+            <div style="border-top:1px solid #f5f5f5;padding-top:12px;">
+                <span style="font-size:13px;color:#888;margin-right:10px;">清理备份：</span>
+                <form method="post" style="display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                    <input type="hidden" name="action" value="clean_backups">
+                    <button type="button" class="btn-sm" onclick="this.form.keep_days.value='7';this.form.submit()" style="font-size:12px;">保留7天</button>
+                    <button type="button" class="btn-sm" onclick="this.form.keep_days.value='15';this.form.submit()" style="font-size:12px;">保留15天</button>
+                    <button type="button" class="btn-sm" onclick="this.form.keep_days.value='30';this.form.submit()" style="font-size:12px;">保留30天</button>
+                    <input type="hidden" name="keep_days" value="7">
+                    <input type="number" id="backup_keep_days" name="keep_days" value="7" min="1" max="365" style="width:60px;padding:4px 8px;border:1px solid #e0e0e0;border-radius:4px;font-size:12px;" onchange="document.querySelectorAll('input[name=keep_days]').forEach(function(e){e.value=this.value}.bind(this))">
+                    <span style="font-size:12px;color:#999;">天前</span>
+                    <button type="submit" class="btn-sm" style="color:#cf1322;border-color:#ffccc7;font-size:12px;">清理</button>
+                </form>
+            </div>
+            <?php endif; ?>
         </div>
     </div>
 
     <!-- 登录访问日志 -->
     <div class="card">
-        <div class="card-header">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#389e0d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            登录访问日志
-            <span style="font-size:12px;color:#999;font-weight:400;margin-left:4px;">（最近50条）</span>
+        <div class="card-header" style="justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#389e0d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                登录访问日志
+                <span style="font-size:12px;color:#999;font-weight:400;">（共 <?= $logTotal ?> 条）</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:12px;color:#888;">每页</span>
+                <?php foreach ($logPerPageOpts as $opt): ?>
+                    <a href="?log_per_page=<?= $opt ?>&log_page=1" class="btn-sm" style="padding:3px 10px;font-size:12px;text-decoration:none;<?= $logPerPage === $opt ? 'background:#667eea;color:#fff;border-color:#667eea;' : '' ?>"><?= $opt ?></a>
+                <?php endforeach; ?>
+                <span style="font-size:12px;color:#888;">条</span>
+            </div>
         </div>
         <div class="card-body" style="padding:0;">
             <?php if (empty($loginLogs)): ?>
@@ -1089,9 +1197,62 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+                <?php if ($logTotalPages > 1): ?>
+                <div style="display:flex;justify-content:center;align-items:center;gap:4px;padding:12px 16px;border-top:1px solid #f5f5f5;">
+                    <?php if ($logPage > 1): ?>
+                        <a href="?log_page=<?= $logPage - 1 ?>&log_per_page=<?= $logPerPage ?>" class="btn-sm" style="padding:4px 10px;font-size:12px;text-decoration:none;">上一页</a>
+                    <?php endif; ?>
+                    <?php
+                        $startPage = max(1, $logPage - 3);
+                        $endPage = min($logTotalPages, $logPage + 3);
+                        if ($startPage > 1) { echo '<a href="?log_page=1&log_per_page='.$logPerPage.'" class="btn-sm" style="padding:4px 10px;font-size:12px;text-decoration:none;">1</a>'; if ($startPage > 2) echo '<span style="color:#ccc;padding:0 4px;">...</span>'; }
+                        for ($i = $startPage; $i <= $endPage; $i++):
+                    ?>
+                        <a href="?log_page=<?= $i ?>&log_per_page=<?= $logPerPage ?>" class="btn-sm" style="padding:4px 10px;font-size:12px;text-decoration:none;<?= $logPage === $i ? 'background:#667eea;color:#fff;border-color:#667eea;' : '' ?>"><?= $i ?></a>
+                    <?php endfor;
+                        if ($endPage < $logTotalPages) { if ($endPage < $logTotalPages - 1) echo '<span style="color:#ccc;padding:0 4px;">...</span>'; echo '<a href="?log_page='.$logTotalPages.'&log_per_page='.$logPerPage.'" class="btn-sm" style="padding:4px 10px;font-size:12px;text-decoration:none;">'.$logTotalPages.'</a>'; }
+                    ?>
+                    <?php if ($logPage < $logTotalPages): ?>
+                        <a href="?log_page=<?= $logPage + 1 ?>&log_per_page=<?= $logPerPage ?>" class="btn-sm" style="padding:4px 10px;font-size:12px;text-decoration:none;">下一页</a>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
     </div>
+
+    <!-- 登录日志清理 -->
+    <?php if ($logTotal > 0): ?>
+    <div class="card">
+        <div class="card-header">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#cf1322" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            日志清理
+        </div>
+        <div class="card-body" style="display:flex;gap:24px;flex-wrap:wrap;">
+            <!-- 按日期清理 -->
+            <form method="post" style="display:flex;gap:8px;align-items:center;" onsubmit="return confirm('确定删除该日期之前的所有登录日志吗？此操作不可恢复。')">
+                <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                <input type="hidden" name="action" value="clean_logs_date">
+                <span style="font-size:13px;color:#888;white-space:nowrap;">删除</span>
+                <input type="date" name="clean_before_date" required style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:6px;font-size:13px;">
+                <span style="font-size:13px;color:#888;white-space:nowrap;">之前的日志</span>
+                <button type="submit" class="btn-sm" style="color:#cf1322;border-color:#ffccc7;font-size:12px;">清理</button>
+            </form>
+            <!-- 按数量清理 -->
+            <form method="post" style="display:flex;gap:8px;align-items:center;" onsubmit="return confirm('确定只保留指定数量的最新日志吗？多余日志将被删除且不可恢复。')">
+                <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                <input type="hidden" name="action" value="clean_logs_count">
+                <span style="font-size:13px;color:#888;white-space:nowrap;">保留最新</span>
+                <button type="button" class="btn-sm" onclick="this.form.keep_count.value='100';this.form.submit()" style="font-size:12px;">100</button>
+                <button type="button" class="btn-sm" onclick="this.form.keep_count.value='200';this.form.submit()" style="font-size:12px;">200</button>
+                <button type="button" class="btn-sm" onclick="this.form.keep_count.value='300';this.form.submit()" style="font-size:12px;">300</button>
+                <span style="font-size:13px;color:#888;">条</span>
+                <input type="number" id="keep_count_custom" name="keep_count" value="100" min="1" style="width:70px;padding:4px 8px;border:1px solid #e0e0e0;border-radius:4px;font-size:12px;" onchange="document.querySelectorAll('input[name=keep_count]').forEach(function(e){e.value=this.value}.bind(this))">
+                <button type="submit" class="btn-sm" style="color:#cf1322;border-color:#ffccc7;font-size:12px;">清理</button>
+            </form>
+        </div>
+    </div>
+    <?php endif; ?>
 </div>
 
 <!-- 修改密码模态框 -->

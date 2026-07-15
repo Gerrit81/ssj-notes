@@ -341,7 +341,7 @@ function handleSetSkin(): void {
     $userId = currentUserId();
     $skin = $_POST['skin'] ?? 'default';
 
-    $validSkins = ['default', 'green', 'warm', 'dark', 'paper', 'grid', 'grid-green', 'dark-green', 'dark-blue', 'dark-warm', 'dark-grid'];
+    $validSkins = ['default', 'green', 'warm', 'dark', 'paper', 'dark-green', 'dark-warm', 'sakura', 'lavender', 'peach'];
     if (!in_array($skin, $validSkins)) {
         jsonResponse(400, ['error' => '无效的皮肤选项']);
     }

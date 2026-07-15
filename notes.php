@@ -264,6 +264,23 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         }
         .version-link:hover { color: #667eea; }
 
+        /* 会话倒计时 */
+        .logout-countdown {
+            display: block;
+            text-align: center;
+            font-size: 11px;
+            color: #bbb;
+            margin-bottom: 6px;
+            font-family: Consolas, 'Courier New', monospace;
+            user-select: none;
+        }
+        .logout-countdown.warning { color: #fa8c16; }
+        .logout-countdown.danger { color: #cf1322; animation: countdown-pulse 1s infinite; }
+        @keyframes countdown-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
         /* 编辑器区域 */
         .editor-area {
             flex: 1;
@@ -383,10 +400,27 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
             flex: 1;
             padding: 0;
             position: relative;
+            display: flex;
+            overflow: hidden;
         }
+        .line-numbers {
+            flex-shrink: 0;
+            width: 50px;
+            overflow: hidden;
+            text-align: right;
+            padding: 24px 10px;
+            font-family: Consolas, 'Courier New', monospace;
+            font-size: 15px;
+            line-height: 1.8;
+            color: #ccc;
+            background: #fff;
+            border-right: 1px solid #f0f0f0;
+            user-select: none;
+            white-space: pre;
+        }
+        .editor-body.has-content .line-numbers { color: #bbb; }
         .editor-body textarea {
-            width: 100%;
-            height: 100%;
+            flex: 1;
             border: none;
             outline: none;
             resize: none;
@@ -742,6 +776,7 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-dark .editor-body textarea { background: #1e1e2e; }
         body.skin-dark .editor-body textarea { color: #cdd6f4; }
         body.skin-dark .editor-body textarea::placeholder { color: #585b70; }
+        body.skin-dark .line-numbers { color: #585b70; border-right-color: #313244; }
         body.skin-dark .editor-header { background: #181825; border-bottom-color: #313244; }
         body.skin-dark .editor-header h3 { color: #a6adc8; }
         body.skin-dark .app-container { background: #181825; }
@@ -800,50 +835,80 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-dark .auto-save-option.active .save-label { color: #89b4fa; }
         body.skin-dark .auto-save-option .save-label { color: #cdd6f4; }
 
-        body.skin-paper .app-container { background: #faf8f5; }
-        body.skin-paper .sidebar { background: #faf8f5; }
+        body.skin-paper .app-container { background: #e7dcc8; }
+        body.skin-paper .sidebar { background: #e7dcc8; }
         body.skin-paper .editor-area,
         body.skin-paper .editor-body textarea {
-            background: #fdfbf7;
-            background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h100v1H0zM0 50h100v1H0z' fill='%23e8e4dc' fill-opacity='0.5'/%3E%3C/svg%3E");
+            background: #eadfcb;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
         }
-        body.skin-paper .editor-body textarea { color: #4a4035; }
-        body.skin-paper .editor-header { background: #f8f4ef; border-bottom-color: #e8e4dc; }
-        body.skin-paper .editor-header h3 { color: #6b5c4a; }
-        body.skin-paper .note-item:hover { background: #fdfbf7; }
-        body.skin-paper .note-item.active { background: #f3efe9; border-left-color: #c4a77d; }
+        body.skin-paper .editor-body textarea { color: #4a3a28; }
+        body.skin-paper .editor-body textarea::placeholder { color: #c4b8a4; }
+        body.skin-paper .line-numbers { color: #c8b898; border-right-color: #ddd0b8; }
+        body.skin-paper .editor-header { background: #dfd2bb; border-bottom-color: #d4c4a8; }
+        body.skin-paper .editor-header h3 { color: #6b5440; }
+        body.skin-paper .title-input { color: #4a3a28; }
+        body.skin-paper .title-input::placeholder { color: #c4b8a4; }
+        body.skin-paper .note-item:hover { background: #f0e6d6; }
+        body.skin-paper .note-item.active { background: #e8dac4; border-left-color: #c4a47d; }
+        body.skin-paper .skin-option.active .skin-dot { border-color: #c4a47d; }
+        body.skin-paper .btn-primary { background: linear-gradient(135deg, #c4a47d, #a08860); }
+        body.skin-paper .search-box { background: #e7dcc8; border-bottom-color: #d4c4a8; }
+        body.skin-paper .search-box .search-icon { color: #a89878; }
+        body.skin-paper .search-box input { background: #f0e6d6; border-color: #d4c4a8; color: #4a3a28; }
+        body.skin-paper .search-box input:focus { border-color: #c4a47d; }
+        body.skin-paper .search-box .search-clear { background: #d4c4a8; }
+        body.skin-paper .btn-logout { background: #e7dcc8; border-color: #d4c4a8; color: #8a7860; }
+        body.skin-paper .btn-logout:hover { color: #c0392b; border-color: #c0392b; background: #fce8e6; }
+        body.skin-paper .btn-action { background: #f0e6d6; border-color: #d4c4a8; color: #6b5440; }
+        body.skin-paper .btn-action:hover { border-color: #c4a47d; background: #e8dac4; }
+        body.skin-paper .btn-action.save-btn { background: #c4a47d; color: #fff; border-color: #c4a47d; }
+        body.skin-paper .btn-action.danger { color: #c0392b; border-color: #e8c4c0; background: #fdf0ed; }
+        body.skin-paper .btn-action.danger:hover { color: #a93226; border-color: #d4a89a; background: #fce4dc; }
+        body.skin-paper .btn-action.divider { background: #d4c4a8; }
+        body.skin-paper .dropdown-selector { background: #faf8f2; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        body.skin-paper .dropdown-selector h4 { color: #8a7860; }
+        body.skin-paper .dropdown-option:hover, body.skin-paper .skin-option:hover,
+        body.skin-paper .font-option:hover, body.skin-paper .size-option:hover,
+        body.skin-paper .auto-save-option:hover { background: #f0e6d6; }
+        body.skin-paper .dropdown-option.active, body.skin-paper .skin-option.active,
+        body.skin-paper .font-option.active, body.skin-paper .size-option.active,
+        body.skin-paper .auto-save-option.active { background: #e8dac4; }
+        body.skin-paper .option-label, body.skin-paper .skin-label,
+        body.skin-paper .font-preview, body.skin-paper .size-preview,
+        body.skin-paper .save-label { color: #4a3a28; }
+        body.skin-paper .option-dot.active { border-color: #c4a47d; }
+        body.skin-paper .font-option.active .font-preview,
+        body.skin-paper .size-option.active .size-preview,
+        body.skin-paper .auto-save-option.active .save-label { color: #c4a47d; }
+        body.skin-paper .status-bar { border-top-color: #d4c4a8; }
+        body.skin-paper .status-bar .word-count { color: #8a7860; }
+        body.skin-paper .shortcut-hint { color: #c8b898; }
+        body.skin-paper .shortcut-hint kbd { background: #f0e6d6; border-color: #d4c4a8; }
+        body.skin-paper .sidebar-header { border-bottom-color: #d4c4a8; }
+        body.skin-paper .sidebar-header h2 { color: #6b5440; }
+        body.skin-paper .sidebar-header .user-info { color: #8a7860; }
+        body.skin-paper .sidebar-actions { border-bottom-color: #d4c4a8; }
+        body.skin-paper .pagination { border-top-color: #d4c4a8; }
+        body.skin-paper .pagination button { background: #f0e6d6; border-color: #d4c4a8; color: #6b5440; }
+        body.skin-paper .pagination button:hover:not(:disabled) { border-color: #c4a47d; color: #c4a47d; }
+        body.skin-paper .version-link, body.skin-paper .search-result-info { color: #a89878; }
+        body.skin-paper .version-link:hover { color: #c4a47d; }
+        body.skin-paper .note-item .preview, body.skin-paper .note-item .note-title { color: #4a3a28; }
+        body.skin-paper .note-item .meta { color: #a89878; }
+        body.skin-paper .trash-panel { background: #faf8f2; }
+        body.skin-paper .trash-header { border-bottom-color: #d4c4a8; }
+        body.skin-paper .trash-header h3 { color: #6b5440; }
+        body.skin-paper .trash-header .btn-trash { background: #f0e6d6; border-color: #d4c4a8; color: #6b5440; }
+        body.skin-paper .trash-header .btn-trash.danger { color: #c0392b; border-color: #c0392b; }
+        body.skin-paper .trash-item { border-bottom-color: #d4c4a8; }
+        body.skin-paper .trash-item:hover { background: #f0e6d6; }
+        body.skin-paper .trash-item .trash-title { color: #4a3a28; }
+        body.skin-paper .trash-item .trash-meta { color: #a89878; }
+        body.skin-paper .trash-item .trash-btns button { background: #f0e6d6; border-color: #d4c4a8; color: #6b5440; }
+        body.skin-paper .trash-item .trash-btns .btn-restore { color: #27ae60; border-color: #27ae60; }
+        body.skin-paper .trash-item .trash-btns .btn-perm-delete { color: #c0392b; border-color: #c0392b; }
 
-        body.skin-grid .app-container { background: #f1f5f9; }
-        body.skin-grid .sidebar { background: #f1f5f9; }
-        body.skin-grid .editor-area,
-        body.skin-grid .editor-body textarea {
-            background: #f8fafc;
-            background-image: 
-                linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
-            background-size: 20px 20px;
-        }
-        body.skin-grid .editor-body textarea { color: #334155; }
-        body.skin-grid .editor-header { background: #e2e8f0; border-bottom-color: #cbd5e1; }
-        body.skin-grid .editor-header h3 { color: #64748b; }
-        body.skin-grid .note-item:hover { background: #f8fafc; }
-        body.skin-grid .note-item.active { background: #e0f2fe; border-left-color: #0ea5e9; }
-
-        body.skin-grid-green .app-container { background: #ecfdf5; }
-        body.skin-grid-green .sidebar { background: #ecfdf5; }
-        body.skin-grid-green .editor-area,
-        body.skin-grid-green .editor-body textarea {
-            background: #f0fdf4;
-            background-image: 
-                linear-gradient(rgba(74, 222, 128, 0.15) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(74, 222, 128, 0.15) 1px, transparent 1px);
-            background-size: 20px 20px;
-        }
-        body.skin-grid-green .editor-body textarea { color: #166534; }
-        body.skin-grid-green .editor-header { background: #dcfce7; border-bottom-color: #bbf7d0; }
-        body.skin-grid-green .editor-header h3 { color: #15803d; }
-        body.skin-grid-green .note-item:hover { background: #f0fdf4; }
-        body.skin-grid-green .note-item.active { background: #dcfce7; border-left-color: #22c55e; }
 
         /* ========== 深色护眼皮肤 ========== */
 
@@ -870,6 +935,7 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-dark-green .editor-area, body.skin-dark-green .editor-body textarea { background: #0d1f17; box-shadow: inset 0 0 60px rgba(74,222,128,0.03); }
         body.skin-dark-green .editor-body textarea { color: #c8e6d8; }
         body.skin-dark-green .editor-body textarea::placeholder { color: #3a6a4c; }
+        body.skin-dark-green .line-numbers { color: #3a6a4c; border-right-color: #1a3a2a; }
         body.skin-dark-green .editor-header { background: #0a1612; border-bottom-color: #1a3a2a; }
         body.skin-dark-green .editor-header h3, body.skin-dark-green .title-input { color: #7ec699; }
         body.skin-dark-green .title-input::placeholder { color: #3a6a4c; }
@@ -915,73 +981,8 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-dark-green .trash-item .trash-btns .btn-restore { color: #4ade80; border-color: #4ade80; }
         body.skin-dark-green .trash-item .trash-btns .btn-perm-delete { color: #f87171; border-color: #f87171; }
 
-        /* 暗海蓝 dark-blue - VS Code 风格深蓝底 */
-        body.skin-dark-blue .app-container { background: #0d1117; }
-        body.skin-dark-blue .sidebar { background: #0d1117; border-right-color: #21262d; }
-        body.skin-dark-blue .sidebar-header { border-bottom-color: #21262d; }
-        body.skin-dark-blue .sidebar-header h2 { color: #79c0ff; }
-        body.skin-dark-blue .sidebar-header .user-info { color: #484f58; }
-        body.skin-dark-blue .sidebar-actions { border-bottom-color: #21262d; }
-        body.skin-dark-blue .btn-primary { background: linear-gradient(135deg, #1f6feb 0%, #1158c7 100%); }
-        body.skin-dark-blue .search-box { background: #010409; border-bottom-color: #21262d; }
-        body.skin-dark-blue .search-box .search-icon { color: #484f58; }
-        body.skin-dark-blue .search-box input { background: #0d1117; border-color: #30363d; color: #c9d1d9; }
-        body.skin-dark-blue .search-box input:focus { border-color: #58a6ff; }
-        body.skin-dark-blue .search-box .search-clear { background: #30363d; }
-        body.skin-dark-blue .note-item:hover { background: #161b22; }
-        body.skin-dark-blue .note-item.active { background: #21262d; border-left-color: #58a6ff; }
-        body.skin-dark-blue .note-item .preview, body.skin-dark-blue .note-item .note-title { color: #c9d1d9; }
-        body.skin-dark-blue .note-item .meta { color: #484f58; }
-        body.skin-dark-blue .pagination { border-top-color: #21262d; }
-        body.skin-dark-blue .pagination button { background: #21262d; border-color: #30363d; color: #8b949e; }
-        body.skin-dark-blue .pagination button:hover:not(:disabled) { border-color: #58a6ff; color: #58a6ff; }
-        body.skin-dark-blue .editor-area, body.skin-dark-blue .editor-body textarea { background: #0d1117; }
-        body.skin-dark-blue .editor-body textarea { color: #c9d1d9; }
-        body.skin-dark-blue .editor-body textarea::placeholder { color: #484f58; }
-        body.skin-dark-blue .editor-header { background: #010409; border-bottom-color: #21262d; }
-        body.skin-dark-blue .editor-header h3, body.skin-dark-blue .title-input { color: #79c0ff; }
-        body.skin-dark-blue .title-input::placeholder { color: #484f58; }
-        body.skin-dark-blue .btn-logout { background: #0d1117; border-color: #21262d; color: #484f58; }
-        body.skin-dark-blue .btn-logout:hover { color: #f85149; border-color: #f85149; background: #1a1214; }
-        body.skin-dark-blue .version-link, body.skin-dark-blue .search-result-info { color: #484f58; }
-        body.skin-dark-blue .version-link:hover { color: #58a6ff; }
-        body.skin-dark-blue .btn-action { background: #21262d; border-color: #30363d; color: #8b949e; }
-        body.skin-dark-blue .btn-action:hover { border-color: #58a6ff; background: #161b22; }
-        body.skin-dark-blue .btn-action.save-btn { background: #1f6feb; color: #fff; border-color: #1f6feb; }
-        body.skin-dark-blue .btn-action.danger { color: #f85149; border-color: #f85149; background: #1a1214; }
-        body.skin-dark-blue .btn-action.danger:hover { color: #ffa198; border-color: #ffa198; background: #29181c; }
-        body.skin-dark-blue .btn-action.divider { background: #30363d; }
-        body.skin-dark-blue .dropdown-selector { background: #0d1117; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
-        body.skin-dark-blue .dropdown-selector h4 { color: #484f58; }
-        body.skin-dark-blue .dropdown-option:hover, body.skin-dark-blue .skin-option:hover,
-        body.skin-dark-blue .font-option:hover, body.skin-dark-blue .size-option:hover,
-        body.skin-dark-blue .auto-save-option:hover { background: #21262d; }
-        body.skin-dark-blue .dropdown-option.active, body.skin-dark-blue .skin-option.active,
-        body.skin-dark-blue .font-option.active, body.skin-dark-blue .size-option.active,
-        body.skin-dark-blue .auto-save-option.active { background: #21262d; }
-        body.skin-dark-blue .option-label, body.skin-dark-blue .skin-label,
-        body.skin-dark-blue .font-preview, body.skin-dark-blue .size-preview,
-        body.skin-dark-blue .save-label { color: #c9d1d9; }
-        body.skin-dark-blue .option-dot.active, body.skin-dark-blue .skin-dot.active { border-color: #58a6ff; }
-        body.skin-dark-blue .font-option.active .font-preview,
-        body.skin-dark-blue .size-option.active .size-preview,
-        body.skin-dark-blue .auto-save-option.active .save-label { color: #58a6ff; }
-        body.skin-dark-blue .status-bar { border-top-color: #21262d; }
-        body.skin-dark-blue .status-bar .word-count { color: #484f58; }
-        body.skin-dark-blue .shortcut-hint { color: #30363d; }
-        body.skin-dark-blue .shortcut-hint kbd { background: #21262d; border-color: #30363d; }
-        body.skin-dark-blue .trash-panel { background: #0d1117; }
-        body.skin-dark-blue .trash-header { border-bottom-color: #21262d; }
-        body.skin-dark-blue .trash-header h3 { color: #79c0ff; }
-        body.skin-dark-blue .trash-header .btn-trash { background: #21262d; border-color: #30363d; color: #8b949e; }
-        body.skin-dark-blue .trash-header .btn-trash.danger { color: #f85149; border-color: #f85149; }
-        body.skin-dark-blue .trash-item { border-bottom-color: #21262d; }
-        body.skin-dark-blue .trash-item:hover { background: #21262d; }
-        body.skin-dark-blue .trash-item .trash-title { color: #c9d1d9; }
-        body.skin-dark-blue .trash-item .trash-meta { color: #484f58; }
-        body.skin-dark-blue .trash-item .trash-btns button { background: #21262d; border-color: #30363d; color: #8b949e; }
-        body.skin-dark-blue .trash-item .trash-btns .btn-restore { color: #3fb950; border-color: #3fb950; }
-        body.skin-dark-blue .trash-item .trash-btns .btn-perm-delete { color: #f85149; border-color: #f85149; }
+
+
 
         /* 暖夜色 dark-warm - 深暖色调，夜间阅读友好 */
         body.skin-dark-warm .app-container { background: #1a1814; }
@@ -1006,6 +1007,7 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-dark-warm .editor-area, body.skin-dark-warm .editor-body textarea { background: #1e1a14; box-shadow: inset 0 0 80px rgba(232,193,112,0.02); }
         body.skin-dark-warm .editor-body textarea { color: #ebe0d0; }
         body.skin-dark-warm .editor-body textarea::placeholder { color: #584830; }
+        body.skin-dark-warm .line-numbers { color: #584830; border-right-color: #2e2820; }
         body.skin-dark-warm .editor-header { background: #161310; border-bottom-color: #2e2820; }
         body.skin-dark-warm .editor-header h3, body.skin-dark-warm .title-input { color: #d4a84a; }
         body.skin-dark-warm .title-input::placeholder { color: #584830; }
@@ -1051,79 +1053,226 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-dark-warm .trash-item .trash-btns .btn-restore { color: #c9923a; border-color: #c9923a; }
         body.skin-dark-warm .trash-item .trash-btns .btn-perm-delete { color: #e88870; border-color: #e88870; }
 
-        /* 暗网格 dark-grid - 暗色底 + 淡紫微妙网格纹理 */
-        body.skin-dark-grid .app-container { background: #13121c; }
-        body.skin-dark-grid .sidebar { background: #13121c; border-right-color: #252338; }
-        body.skin-dark-grid .sidebar-header { border-bottom-color: #252338; }
-        body.skin-dark-grid .sidebar-header h2 { color: #b4b0d8; }
-        body.skin-dark-grid .sidebar-header .user-info { color: #555280; }
-        body.skin-dark-grid .sidebar-actions { border-bottom-color: #252338; }
-        body.skin-dark-grid .btn-primary { background: linear-gradient(135deg, #7c6fe0 0%, #5a4dd0 100%); }
-        body.skin-dark-grid .search-box { background: #0d0c14; border-bottom-color: #252338; }
-        body.skin-dark-grid .search-box .search-icon { color: #444068; }
-        body.skin-dark-grid .search-box input { background: #1a1828; border-color: #252338; color: #c8c4e0; }
-        body.skin-dark-grid .search-box input:focus { border-color: #9990e8; }
-        body.skin-dark-grid .search-box .search-clear { background: #252338; }
-        body.skin-dark-grid .note-item:hover { background: #1e1c30; }
-        body.skin-dark-grid .note-item.active { background: #252338; border-left-color: #9990e8; }
-        body.skin-dark-grid .note-item .preview, body.skin-dark-grid .note-item .note-title { color: #c8c4e0; }
-        body.skin-dark-grid .note-item .meta { color: #555280; }
-        body.skin-dark-grid .pagination { border-top-color: #252338; }
-        body.skin-dark-grid .pagination button { background: #252338; border-color: #353248; color: #9088b8; }
-        body.skin-dark-grid .pagination button:hover:not(:disabled) { border-color: #9990e8; color: #9990e8; }
-        body.skin-dark-grid .editor-area {
-            background: #181624;
-            background-image:
-                linear-gradient(rgba(120,100,200,0.04) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(120,100,200,0.04) 1px, transparent 1px);
-            background-size: 24px 24px;
-        }
-        body.skin-dark-grid .editor-body textarea { background: transparent; color: #d4d0ee; }
-        body.skin-dark-grid .editor-body textarea::placeholder { color: #444068; }
-        body.skin-dark-grid .editor-header { background: #13121c; border-bottom-color: #252338; }
-        body.skin-dark-grid .editor-header h3, body.skin-dark-grid .title-input { color: #a098cc; }
-        body.skin-dark-grid .title-input::placeholder { color: #444068; }
-        body.skin-dark-grid .btn-logout { background: #13121c; border-color: #252338; color: #555280; }
-        body.skin-dark-grid .btn-logout:hover { color: #e08098; border-color: #e08098; background: #24141c; }
-        body.skin-dark-grid .version-link, body.skin-dark-grid .search-result-info { color: #444068; }
-        body.skin-dark-grid .version-link:hover { color: #9990e8; }
-        body.skin-dark-grid .btn-action { background: #252338; border-color: #353248; color: #9088b8; }
-        body.skin-dark-grid .btn-action:hover { border-color: #7768c8; background: #1e1c30; }
-        body.skin-dark-grid .btn-action.save-btn { background: #6050c0; color: #e8e4ff; border-color: #6050c0; }
-        body.skin-dark-grid .btn-action.danger { color: #e08098; border-color: #e08098; background: #24141c; }
-        body.skin-dark-grid .btn-action.danger:hover { color: #eca8b8; border-color: #eca8b8; background: #301824; }
-        body.skin-dark-grid .btn-action.divider { background: #353248; }
-        body.skin-dark-grid .dropdown-selector { background: #13121c; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
-        body.skin-dark-grid .dropdown-selector h4 { color: #555280; }
-        body.skin-dark-grid .dropdown-option:hover, body.skin-dark-grid .skin-option:hover,
-        body.skin-dark-grid .font-option:hover, body.skin-dark-grid .size-option:hover,
-        body.skin-dark-grid .auto-save-option:hover { background: #252338; }
-        body.skin-dark-grid .dropdown-option.active, body.skin-dark-grid .skin-option.active,
-        body.skin-dark-grid .font-option.active, body.skin-dark-grid .size-option.active,
-        body.skin-dark-grid .auto-save-option.active { background: #252338; }
-        body.skin-dark-grid .option-label, body.skin-dark-grid .skin-label,
-        body.skin-dark-grid .font-preview, body.skin-dark-grid .size-preview,
-        body.skin-dark-grid .save-label { color: #c8c4e0; }
-        body.skin-dark-grid .option-dot.active, body.skin-dark-grid .skin-dot.active { border-color: #9990e8; }
-        body.skin-dark-grid .font-option.active .font-preview,
-        body.skin-dark-grid .size-option.active .size-preview,
-        body.skin-dark-grid .auto-save-option.active .save-label { color: #9990e8; }
-        body.skin-dark-grid .status-bar { border-top-color: #252338; }
-        body.skin-dark-grid .status-bar .word-count { color: #444068; }
-        body.skin-dark-grid .shortcut-hint { color: #353248; }
-        body.skin-dark-grid .shortcut-hint kbd { background: #252338; border-color: #353248; }
-        body.skin-dark-grid .trash-panel { background: #13121c; }
-        body.skin-dark-grid .trash-header { border-bottom-color: #252338; }
-        body.skin-dark-grid .trash-header h3 { color: #b4b0d8; }
-        body.skin-dark-grid .trash-header .btn-trash { background: #252338; border-color: #353248; color: #9088b8; }
-        body.skin-dark-grid .trash-header .btn-trash.danger { color: #e08098; border-color: #e08098; }
-        body.skin-dark-grid .trash-item { border-bottom-color: #252338; }
-        body.skin-dark-grid .trash-item:hover { background: #252338; }
-        body.skin-dark-grid .trash-item .trash-title { color: #c8c4e0; }
-        body.skin-dark-grid .trash-item .trash-meta { color: #555280; }
-        body.skin-dark-grid .trash-item .trash-btns button { background: #252338; border-color: #353248; color: #9088b8; }
-        body.skin-dark-grid .trash-item .trash-btns .btn-restore { color: #8878d0; border-color: #8878d0; }
-        body.skin-dark-grid .trash-item .trash-btns .btn-perm-delete { color: #e08098; border-color: #e08098; }
+
+
+
+        /* ========== 粉嫩系皮肤 ========== */
+
+        /* 樱花粉 sakura - 柔和粉色，浪漫少女感 */
+        body.skin-sakura .app-container { background: #fff5f7; }
+        body.skin-sakura .sidebar { background: #fff5f7; }
+        body.skin-sakura .editor-area,
+        body.skin-sakura .editor-body textarea { background: #fff0f4; }
+        body.skin-sakura .editor-body textarea { color: #7a3b52; }
+        body.skin-sakura .editor-body textarea::placeholder { color: #d4a0b0; }
+        body.skin-sakura .line-numbers { color: #e4bccc; border-right-color: #f5dce4; }
+        body.skin-sakura .editor-header { background: #fde8ee; border-bottom-color: #f5d0dc; }
+        body.skin-sakura .editor-header h3 { color: #c07088; }
+        body.skin-sakura .note-item:hover { background: #ffebf0; }
+        body.skin-sakura .note-item.active { background: #fde4ec; border-left-color: #f0a0b8; }
+        body.skin-sakura .btn-primary { background: linear-gradient(135deg, #f0a0b8, #d08098); }
+        body.skin-sakura .title-input { color: #7a3b52; }
+        body.skin-sakura .title-input::placeholder { color: #d4a0b0; }
+        body.skin-sakura .skin-option.active .skin-dot { border-color: #f0a0b8; }
+        body.skin-sakura .search-box { background: #fff5f7; border-bottom-color: #f5d0dc; }
+        body.skin-sakura .search-box .search-icon { color: #d4a0b0; }
+        body.skin-sakura .search-box input { background: #fff0f4; border-color: #f5d0dc; color: #7a3b52; }
+        body.skin-sakura .search-box input:focus { border-color: #f0a0b8; }
+        body.skin-sakura .search-box .search-clear { background: #f5dce4; }
+        body.skin-sakura .btn-logout { background: #fff5f7; border-color: #f5dce4; color: #d4a0b0; }
+        body.skin-sakura .btn-logout:hover { color: #e0808a; border-color: #e0808a; background: #ffe8ee; }
+        body.skin-sakura .btn-action { background: #fff5f7; border-color: #f5dce4; color: #c07088; }
+        body.skin-sakura .btn-action:hover { border-color: #f0a0b8; background: #fde4ec; }
+        body.skin-sakura .btn-action.save-btn { background: #f0a0b8; color: #fff; border-color: #f0a0b8; }
+        body.skin-sakura .btn-action.danger { color: #e0808a; border-color: #f5dce4; background: #fff0f4; }
+        body.skin-sakura .btn-action.danger:hover { color: #cc6070; border-color: #e4a0b0; background: #ffe0e8; }
+        body.skin-sakura .btn-action.divider { background: #f5dce4; }
+        body.skin-sakura .dropdown-selector { background: #fff5f7; box-shadow: 0 4px 20px rgba(180,80,100,0.1); }
+        body.skin-sakura .dropdown-selector h4 { color: #d4a0b0; }
+        body.skin-sakura .dropdown-option:hover, body.skin-sakura .skin-option:hover,
+        body.skin-sakura .font-option:hover, body.skin-sakura .size-option:hover,
+        body.skin-sakura .auto-save-option:hover { background: #ffebf0; }
+        body.skin-sakura .dropdown-option.active, body.skin-sakura .skin-option.active,
+        body.skin-sakura .font-option.active, body.skin-sakura .size-option.active,
+        body.skin-sakura .auto-save-option.active { background: #fde4ec; }
+        body.skin-sakura .option-label, body.skin-sakura .skin-label,
+        body.skin-sakura .font-preview, body.skin-sakura .size-preview,
+        body.skin-sakura .save-label { color: #7a3b52; }
+        body.skin-sakura .option-dot.active { border-color: #f0a0b8; }
+        body.skin-sakura .font-option.active .font-preview,
+        body.skin-sakura .size-option.active .size-preview,
+        body.skin-sakura .auto-save-option.active .save-label { color: #f0a0b8; }
+        body.skin-sakura .status-bar { border-top-color: #f5d0dc; }
+        body.skin-sakura .status-bar .word-count { color: #d4a0b0; }
+        body.skin-sakura .shortcut-hint { color: #f0d0dc; }
+        body.skin-sakura .shortcut-hint kbd { background: #fff0f4; border-color: #f5dce4; }
+        body.skin-sakura .sidebar-header { border-bottom-color: #f5dce4; }
+        body.skin-sakura .sidebar-header h2 { color: #c07088; }
+        body.skin-sakura .sidebar-header .user-info { color: #d4a0b0; }
+        body.skin-sakura .sidebar-actions { border-bottom-color: #f5dce4; }
+        body.skin-sakura .pagination { border-top-color: #f5dce4; }
+        body.skin-sakura .pagination button { background: #fff5f7; border-color: #f5dce4; color: #c07088; }
+        body.skin-sakura .pagination button:hover:not(:disabled) { border-color: #f0a0b8; color: #f0a0b8; }
+        body.skin-sakura .version-link, body.skin-sakura .search-result-info { color: #e4bccc; }
+        body.skin-sakura .version-link:hover { color: #f0a0b8; }
+        body.skin-sakura .note-item .preview, body.skin-sakura .note-item .note-title { color: #7a3b52; }
+        body.skin-sakura .note-item .meta { color: #d4a0b0; }
+        body.skin-sakura .trash-panel { background: #fff5f7; }
+        body.skin-sakura .trash-header { border-bottom-color: #f5dce4; }
+        body.skin-sakura .trash-header h3 { color: #c07088; }
+        body.skin-sakura .trash-header .btn-trash { background: #fff0f4; border-color: #f5dce4; color: #c07088; }
+        body.skin-sakura .trash-header .btn-trash.danger { color: #e0808a; border-color: #e0808a; }
+        body.skin-sakura .trash-item { border-bottom-color: #f5dce4; }
+        body.skin-sakura .trash-item:hover { background: #ffebf0; }
+        body.skin-sakura .trash-item .trash-title { color: #7a3b52; }
+        body.skin-sakura .trash-item .trash-meta { color: #d4a0b0; }
+        body.skin-sakura .trash-item .trash-btns button { background: #fff0f4; border-color: #f5dce4; color: #c07088; }
+        body.skin-sakura .trash-item .trash-btns .btn-restore { color: #68c080; border-color: #68c080; }
+        body.skin-sakura .trash-item .trash-btns .btn-perm-delete { color: #e0808a; border-color: #e0808a; }
+
+        /* 薰衣草 lavender - 淡紫柔美，优雅梦幻 */
+        body.skin-lavender .app-container { background: #f8f6ff; }
+        body.skin-lavender .sidebar { background: #f8f6ff; }
+        body.skin-lavender .editor-area,
+        body.skin-lavender .editor-body textarea { background: #f4f0ff; }
+        body.skin-lavender .editor-body textarea { color: #4a3a6e; }
+        body.skin-lavender .editor-body textarea::placeholder { color: #c0b8d8; }
+        body.skin-lavender .line-numbers { color: #d8d0e8; border-right-color: #e8e0f4; }
+        body.skin-lavender .editor-header { background: #ede4ff; border-bottom-color: #dcd0f8; }
+        body.skin-lavender .editor-header h3 { color: #9078c0; }
+        body.skin-lavender .note-item:hover { background: #f2edff; }
+        body.skin-lavender .note-item.active { background: #ebe2fc; border-left-color: #b8a0e8; }
+        body.skin-lavender .btn-primary { background: linear-gradient(135deg, #b8a0e8, #9880d0); }
+        body.skin-lavender .title-input { color: #4a3a6e; }
+        body.skin-lavender .title-input::placeholder { color: #c0b8d8; }
+        body.skin-lavender .skin-option.active .skin-dot { border-color: #b8a0e8; }
+        body.skin-lavender .search-box { background: #f8f6ff; border-bottom-color: #dcd0f8; }
+        body.skin-lavender .search-box .search-icon { color: #b0a0d0; }
+        body.skin-lavender .search-box input { background: #f4f0ff; border-color: #dcd0f8; color: #4a3a6e; }
+        body.skin-lavender .search-box input:focus { border-color: #b8a0e8; }
+        body.skin-lavender .search-box .search-clear { background: #e8e0f4; }
+        body.skin-lavender .btn-logout { background: #f8f6ff; border-color: #e8e0f4; color: #b0a0d0; }
+        body.skin-lavender .btn-logout:hover { color: #e08090; border-color: #e08090; background: #fce8ee; }
+        body.skin-lavender .btn-action { background: #f8f6ff; border-color: #e8e0f4; color: #9078c0; }
+        body.skin-lavender .btn-action:hover { border-color: #b8a0e8; background: #ebe2fc; }
+        body.skin-lavender .btn-action.save-btn { background: #b8a0e8; color: #fff; border-color: #b8a0e8; }
+        body.skin-lavender .btn-action.danger { color: #e08090; border-color: #f0e0e8; background: #fdf4f7; }
+        body.skin-lavender .btn-action.danger:hover { color: #cc6078; border-color: #d8c0d0; background: #fce8f0; }
+        body.skin-lavender .btn-action.divider { background: #e8e0f4; }
+        body.skin-lavender .dropdown-selector { background: #f8f6ff; box-shadow: 0 4px 20px rgba(120,80,180,0.08); }
+        body.skin-lavender .dropdown-selector h4 { color: #b0a0d0; }
+        body.skin-lavender .dropdown-option:hover, body.skin-lavender .skin-option:hover,
+        body.skin-lavender .font-option:hover, body.skin-lavender .size-option:hover,
+        body.skin-lavender .auto-save-option:hover { background: #f2edff; }
+        body.skin-lavender .dropdown-option.active, body.skin-lavender .skin-option.active,
+        body.skin-lavender .font-option.active, body.skin-lavender .size-option.active,
+        body.skin-lavender .auto-save-option.active { background: #ebe2fc; }
+        body.skin-lavender .option-label, body.skin-lavender .skin-label,
+        body.skin-lavender .font-preview, body.skin-lavender .size-preview,
+        body.skin-lavender .save-label { color: #4a3a6e; }
+        body.skin-lavender .option-dot.active { border-color: #b8a0e8; }
+        body.skin-lavender .font-option.active .font-preview,
+        body.skin-lavender .size-option.active .size-preview,
+        body.skin-lavender .auto-save-option.active .save-label { color: #b8a0e8; }
+        body.skin-lavender .status-bar { border-top-color: #dcd0f8; }
+        body.skin-lavender .status-bar .word-count { color: #b0a0d0; }
+        body.skin-lavender .shortcut-hint { color: #dcd0f0; }
+        body.skin-lavender .shortcut-hint kbd { background: #f4f0ff; border-color: #e8e0f4; }
+        body.skin-lavender .sidebar-header { border-bottom-color: #e8e0f4; }
+        body.skin-lavender .sidebar-header h2 { color: #9078c0; }
+        body.skin-lavender .sidebar-header .user-info { color: #b0a0d0; }
+        body.skin-lavender .sidebar-actions { border-bottom-color: #e8e0f4; }
+        body.skin-lavender .pagination { border-top-color: #e8e0f4; }
+        body.skin-lavender .pagination button { background: #f8f6ff; border-color: #e8e0f4; color: #9078c0; }
+        body.skin-lavender .pagination button:hover:not(:disabled) { border-color: #b8a0e8; color: #b8a0e8; }
+        body.skin-lavender .version-link, body.skin-lavender .search-result-info { color: #d8d0e8; }
+        body.skin-lavender .version-link:hover { color: #b8a0e8; }
+        body.skin-lavender .note-item .preview, body.skin-lavender .note-item .note-title { color: #4a3a6e; }
+        body.skin-lavender .note-item .meta { color: #b0a0d0; }
+        body.skin-lavender .trash-panel { background: #f8f6ff; }
+        body.skin-lavender .trash-header { border-bottom-color: #e8e0f4; }
+        body.skin-lavender .trash-header h3 { color: #9078c0; }
+        body.skin-lavender .trash-header .btn-trash { background: #f4f0ff; border-color: #e8e0f4; color: #9078c0; }
+        body.skin-lavender .trash-header .btn-trash.danger { color: #e08090; border-color: #e08090; }
+        body.skin-lavender .trash-item { border-bottom-color: #e8e0f4; }
+        body.skin-lavender .trash-item:hover { background: #f2edff; }
+        body.skin-lavender .trash-item .trash-title { color: #4a3a6e; }
+        body.skin-lavender .trash-item .trash-meta { color: #b0a0d0; }
+        body.skin-lavender .trash-item .trash-btns button { background: #f4f0ff; border-color: #e8e0f4; color: #9078c0; }
+        body.skin-lavender .trash-item .trash-btns .btn-restore { color: #68c080; border-color: #68c080; }
+        body.skin-lavender .trash-item .trash-btns .btn-perm-delete { color: #e08090; border-color: #e08090; }
+
+        /* 蜜桃 peach - 暖橘粉调，温柔甜美 */
+        body.skin-peach .app-container { background: #fff8f4; }
+        body.skin-peach .sidebar { background: #fff8f4; }
+        body.skin-peach .editor-area,
+        body.skin-peach .editor-body textarea { background: #fff3ed; }
+        body.skin-peach .editor-body textarea { color: #6b4a3c; }
+        body.skin-peach .editor-body textarea::placeholder { color: #d4b8a8; }
+        body.skin-peach .line-numbers { color: #e0c8b8; border-right-color: #f5e0d4; }
+        body.skin-peach .editor-header { background: #ffe8dc; border-bottom-color: #ffd8c4; }
+        body.skin-peach .editor-header h3 { color: #d09070; }
+        body.skin-peach .note-item:hover { background: #fff0e8; }
+        body.skin-peach .note-item.active { background: #ffe8da; border-left-color: #ffb088; }
+        body.skin-peach .btn-primary { background: linear-gradient(135deg, #ffb088, #e89870); }
+        body.skin-peach .title-input { color: #6b4a3c; }
+        body.skin-peach .title-input::placeholder { color: #d4b8a8; }
+        body.skin-peach .skin-option.active .skin-dot { border-color: #ffb088; }
+        body.skin-peach .search-box { background: #fff8f4; border-bottom-color: #ffd8c4; }
+        body.skin-peach .search-box .search-icon { color: #d4a090; }
+        body.skin-peach .search-box input { background: #fff3ed; border-color: #ffd8c4; color: #6b4a3c; }
+        body.skin-peach .search-box input:focus { border-color: #ffb088; }
+        body.skin-peach .search-box .search-clear { background: #f5e0d4; }
+        body.skin-peach .btn-logout { background: #fff8f4; border-color: #f5e0d4; color: #d4a090; }
+        body.skin-peach .btn-logout:hover { color: #e0806a; border-color: #e0806a; background: #ffe8e0; }
+        body.skin-peach .btn-action { background: #fff8f4; border-color: #f5e0d4; color: #d09070; }
+        body.skin-peach .btn-action:hover { border-color: #ffb088; background: #ffe8da; }
+        body.skin-peach .btn-action.save-btn { background: #ffb088; color: #fff; border-color: #ffb088; }
+        body.skin-peach .btn-action.danger { color: #e0806a; border-color: #f5dcd4; background: #fef4f0; }
+        body.skin-peach .btn-action.danger:hover { color: #cc6058; border-color: #e4b8a8; background: #fce8dc; }
+        body.skin-peach .btn-action.divider { background: #f5e0d4; }
+        body.skin-peach .dropdown-selector { background: #fff8f4; box-shadow: 0 4px 20px rgba(180,100,60,0.08); }
+        body.skin-peach .dropdown-selector h4 { color: #d4a090; }
+        body.skin-peach .dropdown-option:hover, body.skin-peach .skin-option:hover,
+        body.skin-peach .font-option:hover, body.skin-peach .size-option:hover,
+        body.skin-peach .auto-save-option:hover { background: #fff0e8; }
+        body.skin-peach .dropdown-option.active, body.skin-peach .skin-option.active,
+        body.skin-peach .font-option.active, body.skin-peach .size-option.active,
+        body.skin-peach .auto-save-option.active { background: #ffe8da; }
+        body.skin-peach .option-label, body.skin-peach .skin-label,
+        body.skin-peach .font-preview, body.skin-peach .size-preview,
+        body.skin-peach .save-label { color: #6b4a3c; }
+        body.skin-peach .option-dot.active { border-color: #ffb088; }
+        body.skin-peach .font-option.active .font-preview,
+        body.skin-peach .size-option.active .size-preview,
+        body.skin-peach .auto-save-option.active .save-label { color: #ffb088; }
+        body.skin-peach .status-bar { border-top-color: #ffd8c4; }
+        body.skin-peach .status-bar .word-count { color: #d4a090; }
+        body.skin-peach .shortcut-hint { color: #e0ccb8; }
+        body.skin-peach .shortcut-hint kbd { background: #fff3ed; border-color: #f5e0d4; }
+        body.skin-peach .sidebar-header { border-bottom-color: #f5e0d4; }
+        body.skin-peach .sidebar-header h2 { color: #d09070; }
+        body.skin-peach .sidebar-header .user-info { color: #d4a090; }
+        body.skin-peach .sidebar-actions { border-bottom-color: #f5e0d4; }
+        body.skin-peach .pagination { border-top-color: #f5e0d4; }
+        body.skin-peach .pagination button { background: #fff8f4; border-color: #f5e0d4; color: #d09070; }
+        body.skin-peach .pagination button:hover:not(:disabled) { border-color: #ffb088; color: #ffb088; }
+        body.skin-peach .version-link, body.skin-peach .search-result-info { color: #e0c8b8; }
+        body.skin-peach .version-link:hover { color: #ffb088; }
+        body.skin-peach .note-item .preview, body.skin-peach .note-item .note-title { color: #6b4a3c; }
+        body.skin-peach .note-item .meta { color: #d4a090; }
+        body.skin-peach .trash-panel { background: #fff8f4; }
+        body.skin-peach .trash-header { border-bottom-color: #f5e0d4; }
+        body.skin-peach .trash-header h3 { color: #d09070; }
+        body.skin-peach .trash-header .btn-trash { background: #fff3ed; border-color: #f5e0d4; color: #d09070; }
+        body.skin-peach .trash-header .btn-trash.danger { color: #e0806a; border-color: #e0806a; }
+        body.skin-peach .trash-item { border-bottom-color: #f5e0d4; }
+        body.skin-peach .trash-item:hover { background: #fff0e8; }
+        body.skin-peach .trash-item .trash-title { color: #6b4a3c; }
+        body.skin-peach .trash-item .trash-meta { color: #d4a090; }
+        body.skin-peach .trash-item .trash-btns button { background: #fff3ed; border-color: #f5e0d4; color: #d09070; }
+        body.skin-peach .trash-item .trash-btns .btn-restore { color: #68c080; border-color: #68c080; }
+        body.skin-peach .trash-item .trash-btns .btn-perm-delete { color: #e0806a; border-color: #e0806a; }
 
         /* 底部状态栏 */
         .status-bar {
@@ -1263,6 +1412,7 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         <div class="note-list" id="noteList"></div>
         <div class="pagination" id="pagination"></div>
         <div class="sidebar-footer">
+            <div class="logout-countdown" id="logoutCountdown"></div>
             <button class="btn-logout" onclick="location.href='logout.php'">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                 退出登录
@@ -1384,35 +1534,31 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
                 </div>
                 <div class="skin-option" data-skin="dark" onclick="changeSkin('dark')">
                     <div class="skin-dot" style="background:#1e1e2e;"></div>
-                    <span class="skin-label">深色模式</span>
+                    <span class="skin-label">暗夜黑</span>
                 </div>
                 <div class="skin-option" data-skin="paper" onclick="changeSkin('paper')">
                     <div class="skin-dot" style="background:#fdfbf7;"></div>
                     <span class="skin-label">牛皮纸</span>
                 </div>
-                <div class="skin-option" data-skin="grid" onclick="changeSkin('grid')">
-                    <div class="skin-dot" style="background:#f8fafc;"></div>
-                    <span class="skin-label">网格白底</span>
-                </div>
-                <div class="skin-option" data-skin="grid-green" onclick="changeSkin('grid-green')">
-                    <div class="skin-dot" style="background:#f0fdf4;"></div>
-                    <span class="skin-label">网格绿底</span>
-                </div>
                 <div class="skin-option" data-skin="dark-green" onclick="changeSkin('dark-green')">
                     <div class="skin-dot" style="background:linear-gradient(135deg,#0a1612,#1a3a2a);"></div>
                     <span class="skin-label">暗夜绿</span>
-                </div>
-                <div class="skin-option" data-skin="dark-blue" onclick="changeSkin('dark-blue')">
-                    <div class="skin-dot" style="background:linear-gradient(135deg,#0d1117,#21262d);"></div>
-                    <span class="skin-label">暗海蓝</span>
                 </div>
                 <div class="skin-option" data-skin="dark-warm" onclick="changeSkin('dark-warm')">
                     <div class="skin-dot" style="background:linear-gradient(135deg,#1a1814,#2e2820);"></div>
                     <span class="skin-label">暖夜色</span>
                 </div>
-                <div class="skin-option" data-skin="dark-grid" onclick="changeSkin('dark-grid')">
-                    <div class="skin-dot" style="background:#181624;background-image:linear-gradient(rgba(120,100,200,0.15) 1px,transparent 1px),linear-gradient(90deg,rgba(120,100,200,0.15) 1px,transparent 1px);background-size:6px 6px;"></div>
-                    <span class="skin-label">暗网格</span>
+                <div class="skin-option" data-skin="sakura" onclick="changeSkin('sakura')">
+                    <div class="skin-dot" style="background:linear-gradient(135deg,#ffd0dc,#ffb0c8);"></div>
+                    <span class="skin-label">樱花粉</span>
+                </div>
+                <div class="skin-option" data-skin="lavender" onclick="changeSkin('lavender')">
+                    <div class="skin-dot" style="background:linear-gradient(135deg,#d8c8f0,#c0a8e8);"></div>
+                    <span class="skin-label">薰衣草</span>
+                </div>
+                <div class="skin-option" data-skin="peach" onclick="changeSkin('peach')">
+                    <div class="skin-dot" style="background:linear-gradient(135deg,#ffd0b8,#ffb898);"></div>
+                    <span class="skin-label">蜜桃橘</span>
                 </div>
             </div>
 
@@ -1439,6 +1585,7 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
             </div>
         </div>
         <div class="editor-body">
+            <div class="line-numbers" id="lineNumbers"></div>
             <textarea id="editorContent" placeholder="在这里输入内容...&#10;&#10;提示：点击左侧 + 新建笔记，选择笔记开始编辑"></textarea>
         </div>
         <div class="status-bar" id="statusBar">
@@ -1486,7 +1633,12 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         const titleEl = document.getElementById('editorTitle');
         const contentEl = document.getElementById('editorContent');
         titleEl.addEventListener('input', () => { isDirty = true; });
-        contentEl.addEventListener('input', () => { isDirty = true; updateWordCount(); });
+        contentEl.addEventListener('input', () => { isDirty = true; updateWordCount(); updateLineNumbers(); });
+
+        // 滚动同步：textarea 滚动时同步行号
+        contentEl.addEventListener('scroll', () => {
+            document.getElementById('lineNumbers').scrollTop = contentEl.scrollTop;
+        });
 
         // 定时器自动保存相关内容
         titleEl.addEventListener('change', () => { isDirty = true; });
@@ -1518,6 +1670,35 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         if (textarea) {
             textarea.style.fontFamily = fontMap[currentFontFamily];
             textarea.style.fontSize = currentFontSize + 'px';
+            syncLineNumberStyles();
+        }
+    }
+
+    // 同步行号样式（背景色、字体、行高从 textarea 计算值拷贝）
+    function syncLineNumberStyles() {
+        const ta = document.getElementById('editorContent');
+        const ln = document.getElementById('lineNumbers');
+        if (!ta || !ln) return;
+        const cs = getComputedStyle(ta);
+        ln.style.backgroundColor = cs.backgroundColor;
+        ln.style.fontSize = cs.fontSize;
+        ln.style.lineHeight = cs.lineHeight;
+        ln.style.paddingTop = cs.paddingTop;
+    }
+
+    // 更新行号
+    function updateLineNumbers() {
+        const ta = document.getElementById('editorContent');
+        const ln = document.getElementById('lineNumbers');
+        const body = document.querySelector('.editor-body');
+        if (!ta || !ln) return;
+        const lines = ta.value.split('\n');
+        const count = Math.max(lines.length, 1);
+        ln.textContent = Array.from({length: count}, (_, i) => i + 1).join('\n');
+        if (count > 1 || ta.value.length > 0) {
+            body.classList.add('has-content');
+        } else {
+            body.classList.remove('has-content');
         }
     }
 
@@ -1694,6 +1875,7 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
             });
 
             document.getElementById('skinSelector').classList.remove('show');
+            syncLineNumberStyles();
             loadNoteList();
             showToast('皮肤已切换');
         } catch (e) {
@@ -1914,6 +2096,7 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         document.getElementById('editorTitle').value = '';
         document.getElementById('editorContent').value = '';
         updateWordCount();
+        updateLineNumbers();
         document.getElementById('editorContent').focus();
         document.querySelectorAll('.note-item').forEach(el => el.classList.remove('active'));
     }
@@ -1934,6 +2117,7 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
             document.getElementById('editorTitle').value = data.title || '';
             document.getElementById('editorContent').value = data.content || '';
             updateWordCount();
+            updateLineNumbers();
             document.querySelectorAll('.note-item').forEach(el => el.classList.remove('active'));
             const items = document.querySelectorAll('.note-item');
             items.forEach(el => {
@@ -2292,14 +2476,44 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
 
     let sessionExpired = false;
     let idleSeconds = 0;
+    let lastActivityTime = Date.now();
     let idleTimer = null;
+    const countdownEl = document.getElementById('logoutCountdown');
+
+    // 基于真实时间戳同步空闲秒数（不受后台限速影响）
+    function syncIdle() {
+        idleSeconds = Math.floor((Date.now() - lastActivityTime) / 1000);
+    }
+
+    // 更新倒计时显示
+    function updateCountdown() {
+        if (!countdownEl || SESSION_TIMEOUT_MINUTES <= 0) return;
+        const remaining = IDLE_LIMIT - idleSeconds;
+        if (remaining <= 0) {
+            countdownEl.textContent = '空闲超时：0秒';
+            countdownEl.className = 'logout-countdown danger';
+            return;
+        }
+        if (remaining <= 300) { // 5分钟内警告
+            countdownEl.className = 'logout-countdown warning';
+        } else {
+            countdownEl.className = 'logout-countdown';
+        }
+        if (remaining <= 60) {
+            countdownEl.textContent = '空闲超时：' + remaining + '秒';
+        } else {
+            countdownEl.textContent = '空闲超时：' + Math.ceil(remaining / 60) + '分';
+        }
+    }
 
     // 任何键鼠/触屏操作 → 空闲计时归零
     function resetIdle() {
+        lastActivityTime = Date.now();
         idleSeconds = 0;
+        updateCountdown();
     }
     ['keydown', 'mousedown', 'mousemove', 'scroll', 'touchstart', 'input', 'click'].forEach(function(evt) {
-        document.addEventListener(evt, resetIdle, { passive: true });
+        document.addEventListener(evt, resetIdle, { passive: true } );
     });
 
     // 会话过期：立即跳转，杜绝内容泄漏
@@ -2321,10 +2535,11 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         return res;
     }
 
-    // 每秒检查空闲计时
+    // 每秒检查空闲计时（基于时间戳，不依赖定时器精度）
     function idleTick() {
         if (sessionExpired) return;
-        idleSeconds++;
+        syncIdle();
+        updateCountdown();
         if (idleSeconds >= IDLE_LIMIT) {
             handleSessionExpired();
         }
@@ -2333,7 +2548,9 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
     // 启动空闲检测
     function startIdleTimer() {
         stopIdleTimer();
+        lastActivityTime = Date.now();
         idleSeconds = 0;
+        updateCountdown();
         idleTimer = setInterval(idleTick, 1000);
     }
 
@@ -2352,10 +2569,14 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         }
     });
 
-    // 标签页切回 → 重置计时（防止切回后立即被判超时）
+    // 标签页切回 → 基于真实时间戳同步，超时则立即登出
     document.addEventListener('visibilitychange', function() {
         if (!document.hidden && !sessionExpired) {
-            resetIdle();
+            syncIdle();
+            updateCountdown();
+            if (idleSeconds >= IDLE_LIMIT) {
+                handleSessionExpired();
+            }
         }
     });
 
