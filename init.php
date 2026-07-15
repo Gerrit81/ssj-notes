@@ -94,6 +94,9 @@ function initDatabase(): void {
     try {
         $db->exec("ALTER TABLE users ADD COLUMN auto_save_interval INTEGER NOT NULL DEFAULT 3");
     } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE users ADD COLUMN last_reset_acknowledged_at DATETIME DEFAULT NULL");
+    } catch (Exception $e) {}
 
     // 笔记表
     $db->exec("CREATE TABLE IF NOT EXISTS notes (
@@ -150,6 +153,33 @@ function initDatabase(): void {
         FOREIGN KEY (used_by) REFERENCES users(id),
         FOREIGN KEY (created_by) REFERENCES users(id)
     )");
+
+    // 密码重置日志表
+    $db->exec("CREATE TABLE IF NOT EXISTS password_reset_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        reset_by TEXT NOT NULL DEFAULT 'self',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )");
+
+    // 重置链接表（管理员生成的带时效的重置链接）
+    $db->exec("CREATE TABLE IF NOT EXISTS reset_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT NOT NULL UNIQUE,
+        user_id INTEGER NOT NULL,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME NOT NULL,
+        used_at DATETIME DEFAULT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id),
+        FOREIGN KEY (created_by) REFERENCES users(id)
+    )");
+
+    // 为已存在的表添加字段
+    try {
+        $db->exec("ALTER TABLE reset_links ADD COLUMN created_by INTEGER NOT NULL DEFAULT 1");
+    } catch (Exception $e) {}
 
     // 初始化默认设置
     $defaults = [

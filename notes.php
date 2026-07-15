@@ -23,6 +23,26 @@ $currentFontFamily = $_SESSION['font_family'] ?? 'default';
 $currentFontSize = $_SESSION['font_size'] ?? 15;
 $currentAutoSaveInterval = $_SESSION['auto_save_interval'] ?? 3;
 $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$config['session_timeout_minutes']);
+
+// 检查是否有管理员重置过此账号的密码（未被用户确认过的）
+$adminResetWarning = false;
+$adminResetTime = '';
+$dbx = getDB();
+$stmtx = $dbx->prepare("SELECT created_at FROM password_reset_log WHERE user_id = ? AND reset_by = 'admin' ORDER BY created_at DESC LIMIT 1");
+$stmtx->execute([currentUserId()]);
+$resetLog = $stmtx->fetch();
+if ($resetLog) {
+    // 获取用户上次确认的时间戳
+    $stmt2 = $dbx->prepare("SELECT last_reset_acknowledged_at FROM users WHERE id = ?");
+    $stmt2->execute([currentUserId()]);
+    $user = $stmt2->fetch();
+    $lastAcknowledged = $user['last_reset_acknowledged_at'] ?? null;
+    // 只有当前重置时间晚于用户上次确认时间才提示
+    if (!$lastAcknowledged || strtotime($resetLog['created_at']) > strtotime($lastAcknowledged)) {
+        $adminResetWarning = true;
+        $adminResetTime = $resetLog['created_at'];
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -51,9 +71,15 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
             max-width: 1400px;
             height: calc(100vh - 40px);
             display: flex;
+            flex-direction: column;
             background: #fff;
             border-radius: 16px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.15), 0 4px 12px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+        .app-body {
+            display: flex;
+            flex: 1;
             overflow: hidden;
         }
 
@@ -252,6 +278,23 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
             transition: all 0.2s;
         }
         .btn-logout:hover { color: #cf1322; border-color: #ffccc7; background: #fff2f0; }
+        .btn-change-pwd {
+            width: 100%;
+            padding: 8px;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            color: #888;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            transition: all 0.2s;
+            margin-bottom: 8px;
+        }
+        .btn-change-pwd:hover { color: #667eea; border-color: #d6e0ff; background: #f5f7ff; }
         .version-info {
             text-align: center;
             margin-top: 10px;
@@ -457,6 +500,36 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
             color: #ddd;
         }
 
+        .reset-notice {
+            background: #fff8e1;
+            border-bottom: 1px solid #ffe082;
+            flex-shrink: 0;
+            display: flex;
+            justify-content: center;
+        }
+        .reset-notice-content {
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            color: #8d6e00;
+            max-width: 800px;
+        }
+        .reset-notice-content svg { flex-shrink: 0; color: #ffa000; }
+        .reset-notice-content strong { color: #e65100; }
+        .reset-notice-close {
+            margin-left: auto;
+            background: none;
+            border: none;
+            font-size: 18px;
+            color: #bcaa70;
+            cursor: pointer;
+            padding: 0 4px;
+            line-height: 1;
+        }
+        .reset-notice-close:hover { color: #8d6e00; }
+
         .toast {
             position: fixed;
             top: 20px;
@@ -511,6 +584,100 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         .confirm-dialog .btn-confirm { background: #ff4d4f; color: #fff; }
         .confirm-dialog .btn-cancel:hover { background: #e5e5e5; }
         .confirm-dialog .btn-confirm:hover { background: #e04345; }
+
+        /* 修改密码弹窗 */
+        .pwd-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.4);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+        .pwd-overlay.show { display: flex; }
+        .pwd-dialog {
+            background: #fff;
+            border-radius: 12px;
+            width: 400px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        .pwd-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 24px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .pwd-header h3 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .pwd-header h3 svg { color: #667eea; }
+        .pwd-close {
+            background: none;
+            border: none;
+            font-size: 22px;
+            color: #bbb;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+        .pwd-close:hover { color: #666; }
+        .pwd-body {
+            padding: 20px 24px;
+        }
+        .pwd-body .form-group {
+            margin-bottom: 14px;
+        }
+        .pwd-body .form-group label {
+            display: block;
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 6px;
+        }
+        .pwd-body .form-group input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .pwd-body .form-group input:focus { border-color: #667eea; }
+        .pwd-error {
+            background: #fff2f0;
+            border: 1px solid #ffccc7;
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 13px;
+            color: #cf1322;
+            margin-bottom: 14px;
+        }
+        .pwd-dialog .btn-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 18px;
+        }
+        .pwd-dialog .btn-row button {
+            flex: 1;
+            padding: 10px;
+            border-radius: 6px;
+            border: none;
+            font-size: 14px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .pwd-dialog .btn-cancel { background: #f0f0f0; color: #666; }
+        .pwd-dialog .btn-cancel:hover { background: #e5e5e5; }
+        .pwd-dialog .btn-confirm-pwd { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; }
+        .pwd-dialog .btn-confirm-pwd:hover { opacity: 0.9; }
 
         /* 回收站面板 */
         .trash-overlay {
@@ -801,6 +968,8 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-dark .pagination button:hover:not(:disabled) { border-color: #89b4fa; color: #89b4fa; }
         body.skin-dark .btn-logout { background: #181825; border-color: #313244; color: #6c7086; }
         body.skin-dark .btn-logout:hover { color: #f38ba8; border-color: #f38ba8; background: #451a2c; }
+        body.skin-dark .btn-change-pwd { background: #181825; border-color: #313244; color: #6c7086; }
+        body.skin-dark .btn-change-pwd:hover { color: #89b4fa; border-color: #89b4fa; background: #1a2035; }
         body.skin-dark .version-link { color: #45475a; }
         body.skin-dark .search-result-info { background: #11111b; color: #6c7086; }
         body.skin-dark .version-link:hover { color: #89b4fa; }
@@ -834,8 +1003,27 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-dark .auto-save-option.active { background: #45475a; }
         body.skin-dark .auto-save-option.active .save-label { color: #89b4fa; }
         body.skin-dark .auto-save-option .save-label { color: #cdd6f4; }
+        body.skin-dark .reset-notice { background: #2e2410; border-bottom-color: #584820; }
+        body.skin-dark .reset-notice-content { color: #d4a840; }
+        body.skin-dark .reset-notice-content strong { color: #f0c050; }
+        body.skin-dark .reset-notice-close { color: #887040; }
+        body.skin-dark .reset-notice-close:hover { color: #d4a840; }
+        body.skin-dark .pwd-dialog { background: #1e1e2e; }
+        body.skin-dark .pwd-header { border-bottom-color: #313244; }
+        body.skin-dark .pwd-header h3 { color: #a6adc8; }
+        body.skin-dark .pwd-header h3 svg { color: #89b4fa; }
+        body.skin-dark .pwd-close { color: #6c7086; }
+        body.skin-dark .pwd-close:hover { color: #a6adc8; }
+        body.skin-dark .pwd-body .form-group label { color: #a6adc8; }
+        body.skin-dark .pwd-body .form-group input { background: #313244; border-color: #45475a; color: #cdd6f4; }
+        body.skin-dark .pwd-body .form-group input:focus { border-color: #89b4fa; }
+        body.skin-dark .pwd-error { background: #451a2c; border-color: #f38ba8; color: #f38ba8; }
+        body.skin-dark .pwd-dialog .btn-cancel { background: #313244; color: #a6adc8; }
+        body.skin-dark .pwd-dialog .btn-cancel:hover { background: #45475a; }
+        body.skin-dark .pwd-dialog .btn-confirm-pwd { background: linear-gradient(135deg, #89b4fa 0%, #cba6f7 100%); }
 
-        body.skin-paper .app-container { background: #e7dcc8; }
+        body.skin-paper .btn-change-pwd { background: #e7dcc8; border-color: #d4c4a8; color: #8a7860; }
+        body.skin-paper .btn-change-pwd:hover { color: #c4a47d; border-color: #c4a47d; background: #dcd0b8; }
         body.skin-paper .sidebar { background: #e7dcc8; }
         body.skin-paper .editor-area,
         body.skin-paper .editor-body textarea {
@@ -941,6 +1129,8 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-dark-green .title-input::placeholder { color: #3a6a4c; }
         body.skin-dark-green .btn-logout { background: #0a1612; border-color: #1a3a2a; color: #4a7a5c; }
         body.skin-dark-green .btn-logout:hover { color: #f87171; border-color: #f87171; background: #2a1515; }
+        body.skin-dark-green .btn-change-pwd { background: #0a1612; border-color: #1a3a2a; color: #4a7a5c; }
+        body.skin-dark-green .btn-change-pwd:hover { color: #4ade80; border-color: #4ade80; background: #0d2015; }
         body.skin-dark-green .version-link, body.skin-dark-green .search-result-info { color: #3a6a4c; }
         body.skin-dark-green .version-link:hover { color: #4ade80; }
         body.skin-dark-green .btn-action { background: #1a3a2a; border-color: #2a5a3c; color: #8fccaa; }
@@ -980,9 +1170,19 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-dark-green .trash-item .trash-btns button { background: #1a3a2a; border-color: #2a5a3c; color: #8fccaa; }
         body.skin-dark-green .trash-item .trash-btns .btn-restore { color: #4ade80; border-color: #4ade80; }
         body.skin-dark-green .trash-item .trash-btns .btn-perm-delete { color: #f87171; border-color: #f87171; }
-
-
-
+        body.skin-dark-green .pwd-dialog { background: #0a1612; }
+        body.skin-dark-green .pwd-header { border-bottom-color: #1a3a2a; }
+        body.skin-dark-green .pwd-header h3 { color: #b8e0cc; }
+        body.skin-dark-green .pwd-header h3 svg { color: #4ade80; }
+        body.skin-dark-green .pwd-close { color: #4a7a5c; }
+        body.skin-dark-green .pwd-close:hover { color: #b8e0cc; }
+        body.skin-dark-green .pwd-body .form-group label { color: #b8e0cc; }
+        body.skin-dark-green .pwd-body .form-group input { background: #1a3a2a; border-color: #2a5a3c; color: #d4ffe8; }
+        body.skin-dark-green .pwd-body .form-group input:focus { border-color: #4ade80; }
+        body.skin-dark-green .pwd-error { background: #2a1515; border-color: #f87171; color: #f87171; }
+        body.skin-dark-green .pwd-dialog .btn-cancel { background: #1a3a2a; color: #b8e0cc; }
+        body.skin-dark-green .pwd-dialog .btn-cancel:hover { background: #2a5a3c; }
+        body.skin-dark-green .pwd-dialog .btn-confirm-pwd { background: linear-gradient(135deg, #2d8659 0%, #1a5c38 100%); }
 
         /* 暖夜色 dark-warm - 深暖色调，夜间阅读友好 */
         body.skin-dark-warm .app-container { background: #1a1814; }
@@ -1013,6 +1213,8 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-dark-warm .title-input::placeholder { color: #584830; }
         body.skin-dark-warm .btn-logout { background: #1a1814; border-color: #2e2820; color: #786848; }
         body.skin-dark-warm .btn-logout:hover { color: #e88870; border-color: #e88870; background: #2a1814; }
+        body.skin-dark-warm .btn-change-pwd { background: #1a1814; border-color: #2e2820; color: #786848; }
+        body.skin-dark-warm .btn-change-pwd:hover { color: #e8c170; border-color: #e8c170; background: #2a2418; }
         body.skin-dark-warm .version-link, body.skin-dark-warm .search-result-info { color: #584830; }
         body.skin-dark-warm .version-link:hover { color: #e8c170; }
         body.skin-dark-warm .btn-action { background: #2e2820; border-color: #3a3028; color: #b0a078; }
@@ -1052,9 +1254,19 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-dark-warm .trash-item .trash-btns button { background: #2e2820; border-color: #3a3028; color: #b0a078; }
         body.skin-dark-warm .trash-item .trash-btns .btn-restore { color: #c9923a; border-color: #c9923a; }
         body.skin-dark-warm .trash-item .trash-btns .btn-perm-delete { color: #e88870; border-color: #e88870; }
-
-
-
+        body.skin-dark-warm .pwd-dialog { background: #1a1814; }
+        body.skin-dark-warm .pwd-header { border-bottom-color: #2e2820; }
+        body.skin-dark-warm .pwd-header h3 { color: #ddd0bc; }
+        body.skin-dark-warm .pwd-header h3 svg { color: #e8c170; }
+        body.skin-dark-warm .pwd-close { color: #786848; }
+        body.skin-dark-warm .pwd-close:hover { color: #ddd0bc; }
+        body.skin-dark-warm .pwd-body .form-group label { color: #ddd0bc; }
+        body.skin-dark-warm .pwd-body .form-group input { background: #2e2820; border-color: #3a3028; color: #e8d8b8; }
+        body.skin-dark-warm .pwd-body .form-group input:focus { border-color: #e8c170; }
+        body.skin-dark-warm .pwd-error { background: #2a1814; border-color: #e88870; color: #e88870; }
+        body.skin-dark-warm .pwd-dialog .btn-cancel { background: #2e2820; color: #ddd0bc; }
+        body.skin-dark-warm .pwd-dialog .btn-cancel:hover { background: #3a3028; }
+        body.skin-dark-warm .pwd-dialog .btn-confirm-pwd { background: linear-gradient(135deg, #c9923a 0%, #9a6b18 100%); }
 
         /* ========== 粉嫩系皮肤 ========== */
 
@@ -1081,6 +1293,8 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-sakura .search-box .search-clear { background: #f5dce4; }
         body.skin-sakura .btn-logout { background: #fff5f7; border-color: #f5dce4; color: #d4a0b0; }
         body.skin-sakura .btn-logout:hover { color: #e0808a; border-color: #e0808a; background: #ffe8ee; }
+        body.skin-sakura .btn-change-pwd { background: #fff5f7; border-color: #f5dce4; color: #d4a0b0; }
+        body.skin-sakura .btn-change-pwd:hover { color: #f0a0b8; border-color: #f0a0b8; background: #fde4ec; }
         body.skin-sakura .btn-action { background: #fff5f7; border-color: #f5dce4; color: #c07088; }
         body.skin-sakura .btn-action:hover { border-color: #f0a0b8; background: #fde4ec; }
         body.skin-sakura .btn-action.save-btn { background: #f0a0b8; color: #fff; border-color: #f0a0b8; }
@@ -1153,6 +1367,8 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-lavender .search-box .search-clear { background: #e8e0f4; }
         body.skin-lavender .btn-logout { background: #f8f6ff; border-color: #e8e0f4; color: #b0a0d0; }
         body.skin-lavender .btn-logout:hover { color: #e08090; border-color: #e08090; background: #fce8ee; }
+        body.skin-lavender .btn-change-pwd { background: #f8f6ff; border-color: #e8e0f4; color: #b0a0d0; }
+        body.skin-lavender .btn-change-pwd:hover { color: #b8a0e8; border-color: #b8a0e8; background: #ebe2fc; }
         body.skin-lavender .btn-action { background: #f8f6ff; border-color: #e8e0f4; color: #9078c0; }
         body.skin-lavender .btn-action:hover { border-color: #b8a0e8; background: #ebe2fc; }
         body.skin-lavender .btn-action.save-btn { background: #b8a0e8; color: #fff; border-color: #b8a0e8; }
@@ -1225,6 +1441,8 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-peach .search-box .search-clear { background: #f5e0d4; }
         body.skin-peach .btn-logout { background: #fff8f4; border-color: #f5e0d4; color: #d4a090; }
         body.skin-peach .btn-logout:hover { color: #e0806a; border-color: #e0806a; background: #ffe8e0; }
+        body.skin-peach .btn-change-pwd { background: #fff8f4; border-color: #f5e0d4; color: #d4a090; }
+        body.skin-peach .btn-change-pwd:hover { color: #ffb088; border-color: #ffb088; background: #ffe8da; }
         body.skin-peach .btn-action { background: #fff8f4; border-color: #f5e0d4; color: #d09070; }
         body.skin-peach .btn-action:hover { border-color: #ffb088; background: #ffe8da; }
         body.skin-peach .btn-action.save-btn { background: #ffb088; color: #fff; border-color: #ffb088; }
@@ -1273,6 +1491,84 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         body.skin-peach .trash-item .trash-btns button { background: #fff3ed; border-color: #f5e0d4; color: #d09070; }
         body.skin-peach .trash-item .trash-btns .btn-restore { color: #68c080; border-color: #68c080; }
         body.skin-peach .trash-item .trash-btns .btn-perm-delete { color: #e0806a; border-color: #e0806a; }
+
+        /* ========== 滚动条皮肤配色 ========== */
+        .note-list::-webkit-scrollbar,
+        .editor-body textarea::-webkit-scrollbar,
+        .trash-body::-webkit-scrollbar { width: 8px; }
+        .note-list::-webkit-scrollbar-track,
+        .editor-body textarea::-webkit-scrollbar-track,
+        .trash-body::-webkit-scrollbar-track { background: transparent; }
+        /* 默认皮肤 */
+        .note-list::-webkit-scrollbar-thumb,
+        .editor-body textarea::-webkit-scrollbar-thumb,
+        .trash-body::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 4px; }
+        .note-list::-webkit-scrollbar-thumb:hover,
+        .editor-body textarea::-webkit-scrollbar-thumb:hover,
+        .trash-body::-webkit-scrollbar-thumb:hover { background: #aaa; }
+        /* 护眼绿 */
+        body.skin-green .note-list::-webkit-scrollbar-thumb,
+        body.skin-green .editor-body textarea::-webkit-scrollbar-thumb,
+        body.skin-green .trash-body::-webkit-scrollbar-thumb { background: #b8e6c5; }
+        body.skin-green .note-list::-webkit-scrollbar-thumb:hover,
+        body.skin-green .editor-body textarea::-webkit-scrollbar-thumb:hover,
+        body.skin-green .trash-body::-webkit-scrollbar-thumb:hover { background: #8fd8a0; }
+        /* 暖黄纸 */
+        body.skin-warm .note-list::-webkit-scrollbar-thumb,
+        body.skin-warm .editor-body textarea::-webkit-scrollbar-thumb,
+        body.skin-warm .trash-body::-webkit-scrollbar-thumb { background: #ffe4b5; }
+        body.skin-warm .note-list::-webkit-scrollbar-thumb:hover,
+        body.skin-warm .editor-body textarea::-webkit-scrollbar-thumb:hover,
+        body.skin-warm .trash-body::-webkit-scrollbar-thumb:hover { background: #f5c070; }
+        /* 暗夜黑 */
+        body.skin-dark .note-list::-webkit-scrollbar-thumb,
+        body.skin-dark .editor-body textarea::-webkit-scrollbar-thumb,
+        body.skin-dark .trash-body::-webkit-scrollbar-thumb { background: #45475a; }
+        body.skin-dark .note-list::-webkit-scrollbar-thumb:hover,
+        body.skin-dark .editor-body textarea::-webkit-scrollbar-thumb:hover,
+        body.skin-dark .trash-body::-webkit-scrollbar-thumb:hover { background: #585b70; }
+        /* 牛皮纸 */
+        body.skin-paper .note-list::-webkit-scrollbar-thumb,
+        body.skin-paper .editor-body textarea::-webkit-scrollbar-thumb,
+        body.skin-paper .trash-body::-webkit-scrollbar-thumb { background: #d4c4a8; }
+        body.skin-paper .note-list::-webkit-scrollbar-thumb:hover,
+        body.skin-paper .editor-body textarea::-webkit-scrollbar-thumb:hover,
+        body.skin-paper .trash-body::-webkit-scrollbar-thumb:hover { background: #c4a47d; }
+        /* 暗夜绿 */
+        body.skin-dark-green .note-list::-webkit-scrollbar-thumb,
+        body.skin-dark-green .editor-body textarea::-webkit-scrollbar-thumb,
+        body.skin-dark-green .trash-body::-webkit-scrollbar-thumb { background: #2a5a3c; }
+        body.skin-dark-green .note-list::-webkit-scrollbar-thumb:hover,
+        body.skin-dark-green .editor-body textarea::-webkit-scrollbar-thumb:hover,
+        body.skin-dark-green .trash-body::-webkit-scrollbar-thumb:hover { background: #3a6a4c; }
+        /* 暖夜色 */
+        body.skin-dark-warm .note-list::-webkit-scrollbar-thumb,
+        body.skin-dark-warm .editor-body textarea::-webkit-scrollbar-thumb,
+        body.skin-dark-warm .trash-body::-webkit-scrollbar-thumb { background: #3a3028; }
+        body.skin-dark-warm .note-list::-webkit-scrollbar-thumb:hover,
+        body.skin-dark-warm .editor-body textarea::-webkit-scrollbar-thumb:hover,
+        body.skin-dark-warm .trash-body::-webkit-scrollbar-thumb:hover { background: #584830; }
+        /* 樱花粉 */
+        body.skin-sakura .note-list::-webkit-scrollbar-thumb,
+        body.skin-sakura .editor-body textarea::-webkit-scrollbar-thumb,
+        body.skin-sakura .trash-body::-webkit-scrollbar-thumb { background: #e4bccc; }
+        body.skin-sakura .note-list::-webkit-scrollbar-thumb:hover,
+        body.skin-sakura .editor-body textarea::-webkit-scrollbar-thumb:hover,
+        body.skin-sakura .trash-body::-webkit-scrollbar-thumb:hover { background: #d4a0b0; }
+        /* 薰衣草 */
+        body.skin-lavender .note-list::-webkit-scrollbar-thumb,
+        body.skin-lavender .editor-body textarea::-webkit-scrollbar-thumb,
+        body.skin-lavender .trash-body::-webkit-scrollbar-thumb { background: #d8d0e8; }
+        body.skin-lavender .note-list::-webkit-scrollbar-thumb:hover,
+        body.skin-lavender .editor-body textarea::-webkit-scrollbar-thumb:hover,
+        body.skin-lavender .trash-body::-webkit-scrollbar-thumb:hover { background: #c0b8d8; }
+        /* 蜜桃 */
+        body.skin-peach .note-list::-webkit-scrollbar-thumb,
+        body.skin-peach .editor-body textarea::-webkit-scrollbar-thumb,
+        body.skin-peach .trash-body::-webkit-scrollbar-thumb { background: #e0c8b8; }
+        body.skin-peach .note-list::-webkit-scrollbar-thumb:hover,
+        body.skin-peach .editor-body textarea::-webkit-scrollbar-thumb:hover,
+        body.skin-peach .trash-body::-webkit-scrollbar-thumb:hover { background: #d4b8a8; }
 
         /* 底部状态栏 */
         .status-bar {
@@ -1364,6 +1660,38 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
     </div>
 </div>
 
+<!-- 修改密码弹窗 -->
+<div class="pwd-overlay" id="pwdOverlay">
+    <div class="pwd-dialog">
+        <div class="pwd-header">
+            <h3>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                修改密码
+            </h3>
+            <button class="pwd-close" onclick="closeChangePassword()">&times;</button>
+        </div>
+        <div class="pwd-body">
+            <div class="pwd-error" id="pwdError" style="display:none;"></div>
+            <div class="form-group">
+                <label for="oldPassword">旧密码</label>
+                <input type="password" id="oldPassword" placeholder="输入当前密码" autocomplete="current-password">
+            </div>
+            <div class="form-group">
+                <label for="newPassword">新密码（至少<?= getPasswordMinLength() ?>位）</label>
+                <input type="password" id="newPassword" placeholder="输入新密码" autocomplete="new-password">
+            </div>
+            <div class="form-group">
+                <label for="confirmPassword">确认新密码</label>
+                <input type="password" id="confirmPassword" placeholder="再次输入新密码" autocomplete="new-password">
+            </div>
+            <div class="btn-row">
+                <button class="btn-cancel" onclick="closeChangePassword()">取消</button>
+                <button class="btn-confirm-pwd" id="btnConfirmPwd" onclick="submitChangePassword()">修改密码</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- 回收站面板 -->
 <div class="trash-overlay" id="trashOverlay">
     <div class="trash-panel">
@@ -1388,6 +1716,17 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
 </div>
 
 <div class="app-container">
+    <?php if ($adminResetWarning): ?>
+    <!-- 管理员重置密码通知 -->
+    <div class="reset-notice" id="resetNotice">
+        <div class="reset-notice-content">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span>您的密码曾于 <strong><?= htmlspecialchars(substr($adminResetTime, 0, 16)) ?></strong> 被管理员重置过。如果非本人操作，建议联系管理员确认。</span>
+            <button onclick="acknowledgeReset()" class="reset-notice-close">&times;</button>
+        </div>
+    </div>
+    <?php endif; ?>
+    <div class="app-body">
     <!-- 侧边栏 -->
     <div class="sidebar">
         <div class="sidebar-header">
@@ -1413,6 +1752,10 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         <div class="pagination" id="pagination"></div>
         <div class="sidebar-footer">
             <div class="logout-countdown" id="logoutCountdown"></div>
+            <button class="btn-change-pwd" onclick="openChangePassword()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                修改密码
+            </button>
             <button class="btn-logout" onclick="location.href='logout.php'">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                 退出登录
@@ -1594,6 +1937,7 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         </div>
     </div>
 </div>
+</div>
 
 <script>
     // 状态
@@ -1620,6 +1964,87 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         'consolas': '"Consolas", "Monaco", monospace',
         'monaco': '"Monaco", "Consolas", monospace'
     };
+
+    // 关闭管理员重置密码通知
+    function acknowledgeReset() {
+        const notice = document.getElementById('resetNotice');
+        if (notice) {
+            notice.style.display = 'none';
+        }
+        fetch('api.php?action=acknowledgeReset');
+    }
+
+    // 打开修改密码弹窗
+    function openChangePassword() {
+        document.getElementById('pwdOverlay').classList.add('show');
+        document.getElementById('pwdError').style.display = 'none';
+        document.getElementById('oldPassword').value = '';
+        document.getElementById('newPassword').value = '';
+        document.getElementById('confirmPassword').value = '';
+        document.getElementById('oldPassword').focus();
+    }
+
+    // 关闭修改密码弹窗
+    function closeChangePassword() {
+        document.getElementById('pwdOverlay').classList.remove('show');
+    }
+
+    // 提交修改密码
+    async function submitChangePassword() {
+        const oldPwd = document.getElementById('oldPassword').value;
+        const newPwd = document.getElementById('newPassword').value;
+        const confirmPwd = document.getElementById('confirmPassword').value;
+        const errEl = document.getElementById('pwdError');
+
+        if (!oldPwd || !newPwd || !confirmPwd) {
+            errEl.textContent = '请填写所有密码字段。';
+            errEl.style.display = 'block';
+            return;
+        }
+        if (newPwd.length < <?= getPasswordMinLength() ?>) {
+            errEl.textContent = '新密码长度不能少于<?= getPasswordMinLength() ?>位。';
+            errEl.style.display = 'block';
+            return;
+        }
+        if (newPwd !== confirmPwd) {
+            errEl.textContent = '两次输入的新密码不一致。';
+            errEl.style.display = 'block';
+            return;
+        }
+        if (oldPwd === newPwd) {
+            errEl.textContent = '新密码不能与旧密码相同。';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        const btn = document.getElementById('btnConfirmPwd');
+        btn.disabled = true;
+        btn.textContent = '处理中...';
+        errEl.style.display = 'none';
+
+        try {
+            const formData = new FormData();
+            formData.append('action', 'changePassword');
+            formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
+            formData.append('old_password', oldPwd);
+            formData.append('new_password', newPwd);
+
+            const resp = await fetch('api.php', { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (data.error) {
+                errEl.textContent = data.error;
+                errEl.style.display = 'block';
+            } else {
+                closeChangePassword();
+                showToast('密码修改成功', false);
+            }
+        } catch {
+            errEl.textContent = '网络错误，请重试。';
+            errEl.style.display = 'block';
+        }
+        btn.disabled = false;
+        btn.textContent = '修改密码';
+    }
 
     // 初始化
     document.addEventListener('DOMContentLoaded', async () => {
@@ -1671,6 +2096,7 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
             textarea.style.fontFamily = fontMap[currentFontFamily];
             textarea.style.fontSize = currentFontSize + 'px';
             syncLineNumberStyles();
+            updateLineNumbers();
         }
     }
 
@@ -1686,16 +2112,57 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
         ln.style.paddingTop = cs.paddingTop;
     }
 
-    // 更新行号
+    // 更新行号（按回车计数，视觉折行部分插入空白行以保持对齐）
     function updateLineNumbers() {
         const ta = document.getElementById('editorContent');
         const ln = document.getElementById('lineNumbers');
         const body = document.querySelector('.editor-body');
         if (!ta || !ln) return;
+
         const lines = ta.value.split('\n');
-        const count = Math.max(lines.length, 1);
-        ln.textContent = Array.from({length: count}, (_, i) => i + 1).join('\n');
-        if (count > 1 || ta.value.length > 0) {
+        if (lines.length === 0) {
+            ln.textContent = '1';
+            body.classList.remove('has-content');
+            return;
+        }
+
+        const cs = getComputedStyle(ta);
+        const contentWidth = ta.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        if (contentWidth <= 0) {
+            // 宽度尚未就绪，退化为简单计数
+            const count = Math.max(lines.length, 1);
+            ln.textContent = Array.from({length: count}, (_, i) => i + 1).join('\n');
+            return;
+        }
+
+        // 用 canvas 测量文字宽度
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.font = cs.font;
+
+        const result = [];
+        let num = 1;
+
+        for (const line of lines) {
+            if (line === '') {
+                result.push(num);
+                num++;
+            } else {
+                const textWidth = ctx.measureText(line).width;
+                const visualLines = Math.max(1, Math.ceil(textWidth / contentWidth));
+                result.push(num);
+                for (let i = 1; i < visualLines; i++) {
+                    result.push('');
+                }
+                num++;
+            }
+        }
+
+        if (result.length === 0) result.push('1');
+
+        ln.textContent = result.join('\n');
+
+        if (lines.length > 1 || ta.value.length > 0) {
             body.classList.add('has-content');
         } else {
             body.classList.remove('has-content');
@@ -2561,6 +3028,13 @@ $sessionTimeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$con
             idleTimer = null;
         }
     }
+
+    // 窗口缩放时重新计算行号（折行宽度变化）
+    let resizeDebounce = null;
+    window.addEventListener('resize', function() {
+        if (resizeDebounce) clearTimeout(resizeDebounce);
+        resizeDebounce = setTimeout(() => updateLineNumbers(), 150);
+    });
 
     // bfcache 恢复
     window.addEventListener('pageshow', function(e) {

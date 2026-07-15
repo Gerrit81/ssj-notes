@@ -13,7 +13,7 @@ if (!isLoggedIn()) {
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 $method = $_SERVER['REQUEST_METHOD'];
-$postActions = ['save', 'delete', 'restore', 'permanent_delete', 'emptyTrash', 'setSkin', 'setFont', 'setAutoSave', 'togglePin'];
+$postActions = ['save', 'delete', 'restore', 'permanent_delete', 'emptyTrash', 'setSkin', 'setFont', 'setAutoSave', 'togglePin', 'changePassword'];
 
 if (in_array($action, $postActions) && $method === 'POST') {
     if (!checkCSRF()) {
@@ -69,6 +69,12 @@ switch ($action) {
         break;
     case 'status':
         handleStatus();
+        break;
+    case 'acknowledgeReset':
+        handleAcknowledgeReset();
+        break;
+    case 'changePassword':
+        handleChangePassword();
         break;
     default:
         jsonResponse(400, ['error' => '未知操作']);
@@ -422,6 +428,58 @@ function handleStatus(): void {
         jsonResponse(200, ['username' => currentUsername(), 'is_admin' => true]);
     }
     jsonResponse(200, ['username' => currentUsername(), 'is_admin' => false]);
+}
+
+/** 确认已阅读密码重置通知 */
+function handleAcknowledgeReset(): void {
+    // 持久化：更新时间戳到 users 表，确保下次登录不再提示
+    $db = getDB();
+    $stmt = $db->prepare("UPDATE users SET last_reset_acknowledged_at = ? WHERE id = ?");
+    $stmt->execute([date('Y-m-d H:i:s'), currentUserId()]);
+    $_SESSION['reset_notice_acknowledged'] = true;
+    jsonResponse(200, ['message' => 'ok']);
+}
+
+/** 用户自主修改密码 */
+function handleChangePassword(): void {
+    $oldPassword = $_POST['old_password'] ?? '';
+    $newPassword = $_POST['new_password'] ?? '';
+    $passwordMinLen = getPasswordMinLength();
+
+    if ($oldPassword === '' || $newPassword === '') {
+        jsonResponse(400, ['error' => '请输入旧密码和新密码。']);
+    }
+    if (strlen($newPassword) < $passwordMinLen) {
+        jsonResponse(400, ['error' => "新密码长度不能少于{$passwordMinLen}位。"]);
+    }
+    if ($oldPassword === $newPassword) {
+        jsonResponse(400, ['error' => '新密码不能与旧密码相同。']);
+    }
+
+    $db = getDB();
+    $stmt = $db->prepare("SELECT password_hash FROM users WHERE id = ?");
+    $stmt->execute([currentUserId()]);
+    $user = $stmt->fetch();
+
+    if (!$user || !password_verify($oldPassword, $user['password_hash'])) {
+        jsonResponse(403, ['error' => '旧密码不正确。']);
+    }
+
+    $hash = password_hash($newPassword, PASSWORD_DEFAULT);
+    $stmt = $db->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
+    $stmt->execute([$hash, currentUserId()]);
+
+    // 记录密码修改日志
+    $stmt = $db->prepare("INSERT INTO password_reset_log (user_id, reset_by, created_at) VALUES (?, 'self', ?)");
+    $stmt->execute([currentUserId(), date('Y-m-d H:i:s')]);
+
+    // 用户自主改密后标记通知已读（密码已更换，不再需要提示）
+    $stmt = $db->prepare("UPDATE users SET last_reset_acknowledged_at = ? WHERE id = ?");
+    $stmt->execute([date('Y-m-d H:i:s'), currentUserId()]);
+
+    appLog("用户 " . currentUsername() . " 自行修改了密码");
+
+    jsonResponse(200, ['message' => '密码修改成功。']);
 }
 
 // --- 工具函数 ---

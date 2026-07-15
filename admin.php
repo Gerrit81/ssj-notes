@@ -16,20 +16,16 @@ $inviteGeneratedCode = '';
 $csrf_token = generateCSRF();
 $db = getDB();
 
-// 处理重置用户密码
+// 处理重置用户密码（系统随机生成密码）
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'reset_password') {
     if (!checkCSRF()) {
         $message = '安全校验失败，请刷新页面重试。';
         $messageType = 'error';
     } else {
         $targetUserId = (int)($_POST['user_id'] ?? 0);
-        $newPassword = trim($_POST['new_password'] ?? '');
 
         if ($targetUserId <= 0) {
             $message = '请选择用户。';
-            $messageType = 'error';
-        } elseif (strlen($newPassword) < 4) {
-            $message = '密码长度不能少于4位。';
             $messageType = 'error';
         } else {
             $stmt = $db->prepare("SELECT username, is_admin FROM users WHERE id = ?");
@@ -43,14 +39,111 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $message = '管理员密码请在下方「修改管理员密码」处修改。';
                 $messageType = 'error';
             } else {
-                $hash = password_hash($newPassword, PASSWORD_DEFAULT);
+                // 随机生成密码
+                $generatedPassword = substr(bin2hex(random_bytes(5)), 0, 10);
+                $hash = password_hash($generatedPassword, PASSWORD_DEFAULT);
                 $stmt = $db->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
                 $stmt->execute([$hash, $targetUserId]);
-                $message = "用户「{$user['username']}」的密码已重置成功。";
+
+                // 记录审计日志
+                $stmt = $db->prepare("INSERT INTO password_reset_log (user_id, reset_by, created_at) VALUES (?, 'admin', ?)");
+                $stmt->execute([$targetUserId, date('Y-m-d H:i:s')]);
+
+                $message = "用户「{$user['username']}」的密码已重置。";
                 $messageType = 'success';
-                appLog("管理员重置用户 {$user['username']} 的密码");
+                $message .= ":::PASSWORD:::" . $generatedPassword . ":::" . $user['username'];
+                appLog("管理员随机重置用户 {$user['username']} 的密码");
             }
         }
+    }
+}
+
+// 处理生成重置链接
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'generate_reset_link') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $targetUserId = (int)($_POST['user_id'] ?? 0);
+        $expireMinutes = (int)($_POST['expire_minutes'] ?? 30);
+        $allowedExpiry = [5, 10, 30, 180, 480];
+        if (!in_array($expireMinutes, $allowedExpiry)) {
+            $expireMinutes = 30;
+        }
+
+        if ($targetUserId <= 0) {
+            $message = '请选择用户。';
+            $messageType = 'error';
+        } else {
+            $stmt = $db->prepare("SELECT username, is_admin FROM users WHERE id = ?");
+            $stmt->execute([$targetUserId]);
+            $user = $stmt->fetch();
+
+            if (!$user) {
+                $message = '用户不存在。';
+                $messageType = 'error';
+            } elseif ($user['is_admin'] == 1) {
+                $message = '不能为管理员生成重置链接。';
+                $messageType = 'error';
+            } else {
+                $token = bin2hex(random_bytes(20));
+                $expiresAt = date('Y-m-d H:i:s', time() + $expireMinutes * 60);
+                $stmt = $db->prepare("INSERT INTO reset_links (token, user_id, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)");
+                $stmt->execute([$token, $targetUserId, currentUserId(), date('Y-m-d H:i:s'), $expiresAt]);
+
+                $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                $resetUrl = $scheme . '://' . $host . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\') . '/index.php?reset_token=' . $token;
+
+                $expiryLabel = $expireMinutes >= 60 ? ($expireMinutes / 60) . '小时' : $expireMinutes . '分钟';
+                $message = "已为用户「{$user['username']}」生成重置链接（{$expiryLabel}有效）。";
+                $messageType = 'success';
+                $message .= ":::LINK:::" . $resetUrl . ":::" . $user['username'];
+                appLog("管理员为 {$user['username']} 生成重置密码链接，有效期 {$expiryLabel}");
+            }
+        }
+    }
+}
+
+// 处理删除重置链接
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_reset_link') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $linkId = (int)($_POST['link_id'] ?? 0);
+        $stmt = $db->prepare("DELETE FROM reset_links WHERE id = ?");
+        $stmt->execute([$linkId]);
+        if ($stmt->rowCount() > 0) {
+            $message = '重置链接已删除。';
+            $messageType = 'success';
+        } else {
+            $message = '链接不存在。';
+            $messageType = 'error';
+        }
+    }
+}
+
+// 处理清理重置链接（清空全部）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'clean_reset_links') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $mode = $_POST['clean_mode'] ?? 'expired';
+        if ($mode === 'all') {
+            $stmt = $db->prepare("DELETE FROM reset_links");
+            $stmt->execute();
+            $count = $stmt->rowCount();
+            $message = "已清空全部 {$count} 条重置链接记录。";
+        } else {
+            $stmt = $db->prepare("DELETE FROM reset_links WHERE expires_at < ? AND used_at IS NULL");
+            $stmt->execute([date('Y-m-d H:i:s')]);
+            $count = $stmt->rowCount();
+            $message = "已清理 {$count} 条过期未使用的重置链接。";
+        }
+        $messageType = 'success';
+        appLog("管理员清理重置链接: mode={$mode}, count={$count}");
     }
 }
 
@@ -349,9 +442,9 @@ $stmt->execute();
 $loginFailCount = $stmt->fetch()['cnt'];
 
 // 登录日志分页
-$logPerPageOpts = [20, 50, 100];
-$logPerPage = isset($_GET['log_per_page']) ? (int)$_GET['log_per_page'] : 20;
-if (!in_array($logPerPage, $logPerPageOpts)) $logPerPage = 20;
+$logPerPageOpts = [10, 20, 50, 100];
+$logPerPage = isset($_GET['log_per_page']) ? (int)$_GET['log_per_page'] : 10;
+if (!in_array($logPerPage, $logPerPageOpts)) $logPerPage = 10;
 $logPage = max(1, (int)($_GET['log_page'] ?? 1));
 
 $stmt = $db->prepare("SELECT COUNT(*) as cnt FROM login_logs");
@@ -378,6 +471,24 @@ $loginMaxAttempts = getSetting('login_max_attempts', '5');
 $loginLockoutMinutes = getSetting('login_lockout_minutes', '15');
 $inviteCodes = getInviteCodes();
 $shieldColor = $deployMode === 'internet' ? '#cf1322' : ($deployMode === 'intranet' ? '#389e0d' : '#fa8c16');
+
+// 重置链接分页（每页10条）
+$rlPage = max(1, (int)($_GET['rl_page'] ?? 1));
+$rlPerPage = 10;
+$stmt = $db->prepare("SELECT COUNT(*) as cnt FROM reset_links");
+$stmt->execute();
+$rlTotal = (int)$stmt->fetch()['cnt'];
+$rlTotalPages = max(1, (int)ceil($rlTotal / $rlPerPage));
+if ($rlPage > $rlTotalPages) $rlPage = $rlTotalPages;
+$rlOffset = ($rlPage - 1) * $rlPerPage;
+
+$stmt = $db->prepare("SELECT rl.*, u.username as target_username, cu.username as creator_username
+    FROM reset_links rl
+    LEFT JOIN users u ON rl.user_id = u.id
+    LEFT JOIN users cu ON rl.created_by = cu.id
+    ORDER BY rl.created_at DESC LIMIT ? OFFSET ?");
+$stmt->execute([$rlPerPage, $rlOffset]);
+$resetLinks = $stmt->fetchAll();
 
 // 备份信息
 $backupFiles = getBackupInfo();
@@ -440,7 +551,8 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
             border-radius: 6px;
             font-size: 13px;
             cursor: pointer;
-            display: flex;
+            display: inline-flex;
+            white-space: nowrap;
             align-items: center;
             gap: 4px;
             color: #666;
@@ -786,8 +898,50 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
     <h1 class="page-title">管理后台</h1>
     <p class="page-desc">管理用户账号、查看访问统计。管理员本身不参与记事。</p>
 
-    <?php if ($message): ?>
-        <div class="message <?= $messageType ?>"><?= htmlspecialchars($message) ?></div>
+    <?php if ($message): 
+        $showCopyPwd = false; $copyPwd = ''; $copyPwdUser = '';
+        $showCopyLink = false; $copyLink = ''; $copyLinkUser = '';
+        if (strpos($message, ':::PASSWORD:::') !== false) {
+            $raw = $message;
+            $pos = strpos($raw, ':::PASSWORD:::');
+            $message = substr($raw, 0, $pos);
+            $suffix = substr($raw, $pos + strlen(':::PASSWORD:::'));
+            $suffixParts = explode(':::', $suffix, 2);
+            $copyPwd = $suffixParts[0];
+            $copyPwdUser = $suffixParts[1] ?? '';
+            $showCopyPwd = true;
+        } elseif (strpos($message, ':::LINK:::') !== false) {
+            $raw = $message;
+            $pos = strpos($raw, ':::LINK:::');
+            $message = substr($raw, 0, $pos);
+            $suffix = substr($raw, $pos + strlen(':::LINK:::'));
+            $suffixParts = explode(':::', $suffix, 2);
+            $copyLink = $suffixParts[0];
+            $copyLinkUser = $suffixParts[1] ?? '';
+            $showCopyLink = true;
+        }
+    ?>
+        <div class="message <?= $messageType ?>">
+            <?= htmlspecialchars($message) ?>
+            <?php if ($showCopyPwd): ?>
+            <div class="invite-code-box" style="margin-top:12px;background:#f6ffed;border-color:#b7eb8f;">
+                <div class="invite-code-label" style="color:#389e0d;">用户「<?= htmlspecialchars($copyPwdUser) ?>」的新密码（请通过内网通等渠道发送）：</div>
+                <div class="invite-code-row">
+                    <code class="invite-code-text" style="color:#1d39c4;"><?= htmlspecialchars($copyPwd) ?></code>
+                    <button class="invite-copy-btn" onclick="copyText(this)" data-copy="<?= htmlspecialchars($copyPwd) ?>">📋 复制</button>
+                </div>
+            </div>
+            <?php endif; ?>
+            <?php if ($showCopyLink): ?>
+            <div class="invite-code-box" style="margin-top:12px;background:#e6f7ff;border-color:#91d5ff;">
+                <div class="invite-code-label" style="color:#1890ff;">用户「<?= htmlspecialchars($copyLinkUser) ?>」的重置链接：</div>
+                <div class="invite-code-row">
+                    <code class="invite-code-text" style="font-size:13px;color:#096dd9;overflow:auto;white-space:nowrap;text-overflow:ellipsis;"><?= htmlspecialchars($copyLink) ?></code>
+                    <button class="invite-copy-btn" onclick="copyText(this)" data-copy="<?= htmlspecialchars($copyLink) ?>">📋 复制</button>
+                </div>
+            </div>
+            <?php endif; ?>
+        </div>
     <?php endif; ?>
 
     <?php if ($inviteGeneratedCode): ?>
@@ -1003,10 +1157,14 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
                             <td><?= htmlspecialchars($user['username']) ?></td>
                             <td><?= $userNoteCounts[$user['id']] ?? 0 ?> 条</td>
                             <td><?= substr($user['created_at'], 0, 16) ?></td>
-                            <td>
-                                <button class="btn-sm" onclick="toggleReset(<?= $user['id'] ?>, '<?= htmlspecialchars($user['username'], ENT_QUOTES) ?>')">
+                            <td style="white-space:nowrap; width: 160px;">
+                                <button class="btn-sm" onclick="toggleReset(<?= $user['id'] ?>)">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15.36-6.36L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15.36 6.36L3 16"/></svg>
-                                    重置密码
+                                    重置
+                                </button>
+                                <button class="btn-sm" onclick="toggleResetLink(<?= $user['id'] ?>)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                                    生成链接
                                 </button>
                             </td>
                         </tr>
@@ -1020,11 +1178,31 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
                                         <div class="field">
                                             <label>用户：<?= htmlspecialchars($user['username']) ?></label>
                                         </div>
-                                        <div class="field">
-                                            <label>新密码（至少4位）</label>
-                                            <input type="text" name="new_password" required minlength="4" placeholder="输入新密码" autocomplete="off" style="width:160px;">
+                                        <div class="field" style="font-size:13px;color:#888;">
+                                            <span>随机生成密码，确认后请复制发送给用户</span>
                                         </div>
                                         <button type="submit" class="btn-primary">确认重置</button>
+                                    </form>
+                                </div>
+                                <div class="reset-form" id="resetLinkForm_<?= $user['id'] ?>" style="background:#f0f5ff;border-top-color:#adc6ff;">
+                                    <form method="post" class="form-inline">
+                                        <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                                        <input type="hidden" name="action" value="generate_reset_link">
+                                        <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
+                                        <div class="field">
+                                            <label>用户：<?= htmlspecialchars($user['username']) ?></label>
+                                        </div>
+                                        <div class="field">
+                                            <label>有效期</label>
+                                            <select name="expire_minutes" style="padding:8px 12px;border:1px solid #e0e0e0;border-radius:6px;font-size:14px;outline:none;">
+                                                <option value="5">5 分钟</option>
+                                                <option value="10">10 分钟</option>
+                                                <option value="30" selected>30 分钟（默认）</option>
+                                                <option value="180">3 小时</option>
+                                                <option value="480">8 小时</option>
+                                            </select>
+                                        </div>
+                                        <button type="submit" class="btn-primary" style="background:linear-gradient(135deg,#1890ff,#096dd9);">生成链接</button>
                                     </form>
                                 </div>
                             </td>
@@ -1142,6 +1320,112 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
                     <button type="submit" class="btn-sm" style="color:#cf1322;border-color:#ffccc7;font-size:12px;">清理</button>
                 </form>
             </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- 重置密码链接管理 -->
+    <div class="card">
+        <div class="card-header" style="justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1890ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                重置密码链接
+                <span style="font-size:12px;color:#999;font-weight:400;">（共 <?= $rlTotal ?> 条）</span>
+            </div>
+            <?php if ($rlTotal > 0): ?>
+            <div style="display:flex;gap:8px;">
+                <form method="post" style="margin:0;display:inline;">
+                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                    <input type="hidden" name="action" value="clean_reset_links">
+                    <input type="hidden" name="clean_mode" value="expired">
+                    <button type="submit" class="btn-sm" style="font-size:12px;" onclick="return confirm('清理所有已过期未使用的重置链接？')">清理过期</button>
+                </form>
+                <form method="post" style="margin:0;display:inline;">
+                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                    <input type="hidden" name="action" value="clean_reset_links">
+                    <input type="hidden" name="clean_mode" value="all">
+                    <button type="submit" class="btn-sm" style="font-size:12px;color:#cf1322;border-color:#ffccc7;" onclick="return confirm('确定清空全部重置链接记录？')">全部清空</button>
+                </form>
+            </div>
+            <?php endif; ?>
+        </div>
+        <div class="card-body" style="padding:0;">
+            <?php if (empty($resetLinks)): ?>
+                <div class="empty-hint">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                    <p style="margin-top:10px;">暂无重置链接记录</p>
+                </div>
+            <?php else: ?>
+                <table class="log-table">
+                    <thead>
+                        <tr>
+                            <th>目标用户</th>
+                            <th>创建时间</th>
+                            <th>过期时间</th>
+                            <th>状态</th>
+                            <th>生成者</th>
+                            <th style="width:120px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($resetLinks as $link):
+                            $isExpired = !$link['used_at'] && strtotime($link['expires_at']) < time();
+                            $isUsed = !empty($link['used_at']);
+                            $statusClass = $isUsed ? 'success' : ($isExpired ? 'fail' : '');
+                            $statusText = $isUsed ? '已使用' : ($isExpired ? '已过期' : '待使用');
+                            $expireTimestamp = strtotime($link['expires_at']) * 1000;
+                            $linkUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http')
+                                . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost')
+                                . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\') . '/index.php?reset_token=' . $link['token'];
+                        ?>
+                        <tr>
+                            <td><?= htmlspecialchars($link['target_username'] ?? '已删除') ?></td>
+                            <td style="font-size:12px;"><?= substr($link['created_at'], 0, 16) ?></td>
+                            <td style="font-size:12px;">
+                                <?= substr($link['expires_at'], 0, 16) ?>
+                                <?php if (!$isUsed && !$isExpired): ?>
+                                <span class="rl-countdown" data-expire="<?= $expireTimestamp ?>" style="color:#fa8c16;font-size:11px;margin-left:4px;"></span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($statusClass): ?>
+                                <span class="log-badge <?= $statusClass ?>"><?= $statusText ?></span>
+                                <?php else: ?>
+                                <span class="log-badge" style="background:#fffbe6;color:#ad6800;"><?= $statusText ?></span>
+                                <?php endif; ?>
+                                <?php if ($isUsed): ?>
+                                <div style="font-size:11px;color:#999;"><?= substr($link['used_at'], 0, 16) ?></div>
+                                <?php endif; ?>
+                            </td>
+                            <td style="font-size:12px;color:#888;"><?= htmlspecialchars($link['creator_username'] ?? '-') ?></td>
+                            <td style="white-space:nowrap;width:110px;">
+                                <?php if (!$isUsed && !$isExpired): ?>
+                                <button class="btn-sm" style="font-size:11px;padding:3px 8px;" onclick="copyLinkUrl('<?= htmlspecialchars($linkUrl, ENT_QUOTES) ?>', this)">📋 复制</button>
+                                <?php endif; ?>
+                                <form method="post" style="margin:0;display:inline;">
+                                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                                    <input type="hidden" name="action" value="delete_reset_link">
+                                    <input type="hidden" name="link_id" value="<?= $link['id'] ?>">
+                                    <button type="submit" class="btn-sm" style="font-size:11px;padding:3px 8px;color:#cf1322;border-color:#ffccc7;" onclick="return confirm('确定删除此记录？')">删除</button>
+                                </form>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php if ($rlTotalPages > 1): ?>
+                <div style="display:flex;justify-content:center;align-items:center;gap:4px;padding:12px 16px;border-top:1px solid #f5f5f5;">
+                    <?php if ($rlPage > 1): ?>
+                        <a href="<?= $logPerPage !== 10 ? '?log_per_page='.$logPerPage.'&log_page='.$logPage.'&' : '?' ?>rl_page=<?= $rlPage - 1 ?>" class="btn-sm" style="padding:4px 10px;font-size:12px;text-decoration:none;">上一页</a>
+                    <?php endif; ?>
+                    <?php for ($i = max(1, $rlPage - 2); $i <= min($rlTotalPages, $rlPage + 2); $i++): ?>
+                        <a href="<?= $logPerPage !== 10 ? '?log_per_page='.$logPerPage.'&log_page='.$logPage.'&' : '?' ?>rl_page=<?= $i ?>" class="btn-sm" style="padding:4px 10px;font-size:12px;text-decoration:none;<?= $rlPage === $i ? 'background:#667eea;color:#fff;border-color:#667eea;' : '' ?>"><?= $i ?></a>
+                    <?php endfor; ?>
+                    <?php if ($rlPage < $rlTotalPages): ?>
+                        <a href="<?= $logPerPage !== 10 ? '?log_per_page='.$logPerPage.'&log_page='.$logPage.'&' : '?' ?>rl_page=<?= $rlPage + 1 ?>" class="btn-sm" style="padding:4px 10px;font-size:12px;text-decoration:none;">下一页</a>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
     </div>
@@ -1305,11 +1589,63 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
         }
     });
 
-    function toggleReset(userId, username) {
+    function toggleReset(userId) {
+        // 关闭另一个表单
+        const linkForm = document.getElementById('resetLinkForm_' + userId);
+        if (linkForm) linkForm.classList.remove('show');
         const form = document.getElementById('resetForm_' + userId);
         if (form) {
             form.classList.toggle('show');
         }
+    }
+    function toggleResetLink(userId) {
+        // 关闭另一个表单
+        const form = document.getElementById('resetForm_' + userId);
+        if (form) form.classList.remove('show');
+        const linkForm = document.getElementById('resetLinkForm_' + userId);
+        if (linkForm) {
+            linkForm.classList.toggle('show');
+        }
+    }
+
+    function copyText(btn) {
+        const text = btn.getAttribute('data-copy');
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(function() {
+            const original = btn.textContent;
+            btn.textContent = '✓ 已复制';
+            btn.classList.add('copied');
+            setTimeout(function() {
+                btn.textContent = original;
+                btn.classList.remove('copied');
+            }, 2000);
+        }).catch(function() {
+            const input = document.createElement('textarea');
+            input.value = text;
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand('copy');
+            document.body.removeChild(input);
+            alert('已复制到剪贴板');
+        });
+    }
+
+    function copyLinkUrl(url, btn) {
+        navigator.clipboard.writeText(url).then(function() {
+            const original = btn.textContent;
+            btn.textContent = '✓ 已复制';
+            setTimeout(function() {
+                btn.textContent = original;
+            }, 2000);
+        }).catch(function() {
+            const input = document.createElement('textarea');
+            input.value = url;
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand('copy');
+            document.body.removeChild(input);
+            alert('已复制到剪贴板');
+        });
     }
 
     function copyInviteCode(btn) {
@@ -1332,6 +1668,32 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
             alert('请按 Ctrl+C 复制邀请码');
         });
     }
+
+    // 重置链接倒计时
+    function updateCountdowns() {
+        var now = Date.now();
+        var elements = document.querySelectorAll('.rl-countdown');
+        elements.forEach(function(el) {
+            var expireAt = parseInt(el.getAttribute('data-expire'));
+            if (!expireAt) return;
+            var remaining = expireAt - now;
+            if (remaining <= 0) {
+                el.textContent = '(已过期)';
+                el.style.color = '#cf1322';
+                return;
+            }
+            var mins = Math.floor(remaining / 60000);
+            var secs = Math.floor((remaining % 60000) / 1000);
+            el.textContent = '剩余 ' + mins + '分' + (secs < 10 ? '0' : '') + secs + '秒';
+            if (remaining < 60000) {
+                el.style.color = '#cf1322';
+            } else if (remaining < 300000) {
+                el.style.color = '#fa8c16';
+            }
+        });
+    }
+    updateCountdowns();
+    setInterval(updateCountdowns, 1000);
 </script>
 </body>
 </html>
