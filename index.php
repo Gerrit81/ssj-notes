@@ -1,6 +1,6 @@
 <?php
 /**
- * 内网记事本 - 登录/注册页
+ * 轻记 - 登录/注册页
  */
 require_once __DIR__ . '/init.php';
 
@@ -356,9 +356,9 @@ function clearResetSession(): void {
             text-align: center;
         }
         .header .logo {
-            width: 64px;
-            height: 64px;
-            margin: 0 auto 12px;
+            height: 90px;
+            width: auto;
+            margin: 0 auto 16px;
             display: block;
         }
         .header h1 {
@@ -524,22 +524,7 @@ function clearResetSession(): void {
 <body>
 <div class="container">
     <div class="header">
-        <svg class="logo" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="64" height="64" rx="14" fill="url(#g)"/>
-            <path d="M20 18h16a6 6 0 0 1 6 6v1a5 5 0 0 1-5 5H20V18z" fill="#fff" opacity="0.95"/>
-            <path d="M20 18v12h16a6 6 0 0 0 6-6v-1a5 5 0 0 0-5-5H20z" fill="#fff"/>
-            <line x1="20" y1="26" x2="36" y2="26" stroke="#764ba2" stroke-width="1.5" stroke-linecap="round"/>
-            <line x1="20" y1="30" x2="30" y2="30" stroke="#667eea" stroke-width="1.5" stroke-linecap="round"/>
-            <line x1="20" y1="34" x2="34" y2="34" stroke="#667eea" stroke-width="1.5" stroke-linecap="round"/>
-            <path d="M24 18v-3a2 2 0 0 1 2-2h20a6 6 0 0 1 6 6v17a6 6 0 0 1-6 6H26a6 6 0 0 1-6-6v-3" stroke="#fff" stroke-width="2.5" stroke-linecap="round" fill="none"/>
-            <defs>
-                <linearGradient id="g" x1="0" y1="0" x2="64" y2="64">
-                    <stop stop-color="#667eea"/>
-                    <stop offset="1" stop-color="#764ba2"/>
-                </linearGradient>
-            </defs>
-        </svg>
-        <h1><?= $config['app_name'] ?></h1>
+        <img class="logo" src="logo.png" alt="轻记">
         <p>轻量 · 安全 · 便捷</p>
     </div>
     <div class="body">

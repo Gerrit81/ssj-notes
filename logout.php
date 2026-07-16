@@ -1,6 +1,6 @@
 <?php
 /**
- * 内网记事本 - 退出登录
+ * 轻记 - 退出登录
  */
 require_once __DIR__ . '/init.php';
 

@@ -1,6 +1,6 @@
 <?php
 /**
- * 内网记事本 - 笔记主页面
+ * 轻记 - 笔记主页面
  */
 require_once __DIR__ . '/init.php';
 
@@ -94,47 +94,74 @@ if ($resetLog) {
             position: relative;
         }
         .sidebar-header {
-            padding: 20px;
+            padding: 10px 16px;
             border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .sidebar-header .header-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+        .sidebar-header .logo-img {
+            height: 45px;
+            width: auto;
+            display: block;
+            flex-shrink: 0;
         }
         .sidebar-header h2 {
-            font-size: 18px;
+            font-size: 15px;
             font-weight: 600;
             color: #667eea;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
+            white-space: nowrap;
         }
+        .sidebar-header h2 svg { flex-shrink: 0; }
         .sidebar-header .user-info {
-            font-size: 13px;
+            font-size: 12px;
             color: #888;
-            margin-top: 6px;
+            cursor: pointer;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: #f5f5f5;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: all 0.2s;
         }
-        .sidebar-actions {
-            padding: 12px 20px;
-            border-bottom: 1px solid #f0f0f0;
-            display: flex;
-            gap: 8px;
+        .sidebar-header .user-info:hover {
+            background: #667eea;
+            color: #fff;
         }
-        .sidebar-actions .btn {
-            flex: 1;
-            padding: 8px 12px;
+        .user-sep {
+            width: 1px;
+            height: 22px;
+            background: #e0e0e0;
+            flex-shrink: 0;
+        }
+        .btn-new-note {
+            flex-shrink: 0;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
             border: none;
-            border-radius: 6px;
-            font-size: 13px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            font-size: 18px;
+            line-height: 1;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 4px;
             transition: all 0.2s;
-            font-weight: 500;
         }
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #fff;
-        }
-        .btn-primary:hover { opacity: 0.9; }
+        .btn-new-note:hover { opacity: 0.85; transform: scale(1.05); }
         .search-box {
             padding: 12px 20px;
             border-bottom: 1px solid #f0f0f0;
@@ -259,49 +286,42 @@ if ($resetLog) {
         .pagination button:hover:not(:disabled) { border-color: #667eea; color: #667eea; }
 
         .sidebar-footer {
-            padding: 12px 20px;
+            padding: 8px 16px;
+            border-top: 1px solid #f0f0f0;
             position: relative;
+        }
+        .footer-actions {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
         }
         .btn-logout {
             width: 100%;
-            padding: 8px;
+            padding: 10px 16px;
             background: #fff;
             border: 1px solid #e0e0e0;
-            border-radius: 6px;
+            border-radius: 8px;
             color: #888;
             font-size: 13px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 4px;
+            gap: 8px;
             transition: all 0.2s;
         }
         .btn-logout:hover { color: #cf1322; border-color: #ffccc7; background: #fff2f0; }
-        .btn-change-pwd {
-            width: 100%;
-            padding: 8px;
-            background: #fff;
-            border: 1px solid #e0e0e0;
-            border-radius: 6px;
-            color: #888;
-            font-size: 13px;
-            cursor: pointer;
+        .btn-logout svg { flex-shrink: 0; }
+        .version-info {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 4px;
-            transition: all 0.2s;
-            margin-bottom: 8px;
-        }
-        .btn-change-pwd:hover { color: #667eea; border-color: #d6e0ff; background: #f5f7ff; }
-        .version-info {
-            text-align: center;
-            margin-top: 10px;
+            margin-top: 4px;
         }
         .version-link {
             font-size: 11px;
-            color: #bbb;
+            color: #ccc;
             text-decoration: none;
             transition: color 0.2s;
         }
@@ -313,7 +333,7 @@ if ($resetLog) {
             text-align: center;
             font-size: 11px;
             color: #bbb;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
             font-family: Consolas, 'Courier New', monospace;
             user-select: none;
         }
@@ -950,9 +970,8 @@ if ($resetLog) {
         body.skin-dark .sidebar { background: #181825; border-right-color: #313244; }
         body.skin-dark .sidebar-header { border-bottom-color: #313244; }
         body.skin-dark .sidebar-header h2 { color: #89b4fa; }
-        body.skin-dark .sidebar-header .user-info { color: #6c7086; }
         body.skin-dark .sidebar-actions { border-bottom-color: #313244; }
-        body.skin-dark .btn-primary { background: linear-gradient(135deg, #89b4fa 0%, #cba6f7 100%); }
+        body.skin-dark .btn-new-note { background: linear-gradient(135deg, #89b4fa 0%, #cba6f7 100%); }
         body.skin-dark .search-box { background: #11111b; border-bottom-color: #313244; }
         body.skin-dark .search-box .search-icon { color: #585b70; }
         body.skin-dark .search-box input { background: #1e1e2e; border-color: #45475a; color: #cdd6f4; }
@@ -966,10 +985,12 @@ if ($resetLog) {
         body.skin-dark .pagination { border-top-color: #313244; }
         body.skin-dark .pagination button { background: #313244; border-color: #45475a; color: #a6adc8; }
         body.skin-dark .pagination button:hover:not(:disabled) { border-color: #89b4fa; color: #89b4fa; }
-        body.skin-dark .btn-logout { background: #181825; border-color: #313244; color: #6c7086; }
-        body.skin-dark .btn-logout:hover { color: #f38ba8; border-color: #f38ba8; background: #451a2c; }
-        body.skin-dark .btn-change-pwd { background: #181825; border-color: #313244; color: #6c7086; }
-        body.skin-dark .btn-change-pwd:hover { color: #89b4fa; border-color: #89b4fa; background: #1a2035; }
+        body.skin-dark .btn-logout { color: #585b70; border-color: #313244; background: #181825; }
+        body.skin-dark .btn-logout:hover { background: #451a2c; border-color: #f38ba8; color: #f38ba8; }
+        body.skin-dark .sidebar-footer { border-top-color: #313244; }
+        body.skin-dark .user-sep { background: #313244; }
+        body.skin-dark .sidebar-header .user-info { color: #6c7086; background: #1e1e2e; }
+        body.skin-dark .sidebar-header .user-info:hover { background: #89b4fa; color: #181825; }
         body.skin-dark .version-link { color: #45475a; }
         body.skin-dark .search-result-info { background: #11111b; color: #6c7086; }
         body.skin-dark .version-link:hover { color: #89b4fa; }
@@ -1022,8 +1043,8 @@ if ($resetLog) {
         body.skin-dark .pwd-dialog .btn-cancel:hover { background: #45475a; }
         body.skin-dark .pwd-dialog .btn-confirm-pwd { background: linear-gradient(135deg, #89b4fa 0%, #cba6f7 100%); }
 
-        body.skin-paper .btn-change-pwd { background: #e7dcc8; border-color: #d4c4a8; color: #8a7860; }
-        body.skin-paper .btn-change-pwd:hover { color: #c4a47d; border-color: #c4a47d; background: #dcd0b8; }
+        body.skin-paper .btn-logout { color: #8a7860; border-color: #d4c4a8; background: #e7dcc8; }
+        body.skin-paper .btn-logout:hover { background: #fce8e6; border-color: #c0392b; color: #c0392b; }
         body.skin-paper .sidebar { background: #e7dcc8; }
         body.skin-paper .editor-area,
         body.skin-paper .editor-body textarea {
@@ -1040,14 +1061,13 @@ if ($resetLog) {
         body.skin-paper .note-item:hover { background: #f0e6d6; }
         body.skin-paper .note-item.active { background: #e8dac4; border-left-color: #c4a47d; }
         body.skin-paper .skin-option.active .skin-dot { border-color: #c4a47d; }
-        body.skin-paper .btn-primary { background: linear-gradient(135deg, #c4a47d, #a08860); }
+        body.skin-paper .btn-new-note { background: linear-gradient(135deg, #c4a47d, #a08860); }
         body.skin-paper .search-box { background: #e7dcc8; border-bottom-color: #d4c4a8; }
         body.skin-paper .search-box .search-icon { color: #a89878; }
         body.skin-paper .search-box input { background: #f0e6d6; border-color: #d4c4a8; color: #4a3a28; }
         body.skin-paper .search-box input:focus { border-color: #c4a47d; }
         body.skin-paper .search-box .search-clear { background: #d4c4a8; }
-        body.skin-paper .btn-logout { background: #e7dcc8; border-color: #d4c4a8; color: #8a7860; }
-        body.skin-paper .btn-logout:hover { color: #c0392b; border-color: #c0392b; background: #fce8e6; }
+        body.skin-paper .sidebar-footer { border-top-color: #d4c4a8; }
         body.skin-paper .btn-action { background: #f0e6d6; border-color: #d4c4a8; color: #6b5440; }
         body.skin-paper .btn-action:hover { border-color: #c4a47d; background: #e8dac4; }
         body.skin-paper .btn-action.save-btn { background: #c4a47d; color: #fff; border-color: #c4a47d; }
@@ -1075,7 +1095,8 @@ if ($resetLog) {
         body.skin-paper .shortcut-hint kbd { background: #f0e6d6; border-color: #d4c4a8; }
         body.skin-paper .sidebar-header { border-bottom-color: #d4c4a8; }
         body.skin-paper .sidebar-header h2 { color: #6b5440; }
-        body.skin-paper .sidebar-header .user-info { color: #8a7860; }
+        body.skin-paper .sidebar-header .user-info { color: #8a7860; background: #dcd0b8; }
+        body.skin-paper .sidebar-header .user-info:hover { background: #c4a47d; color: #fff; }
         body.skin-paper .sidebar-actions { border-bottom-color: #d4c4a8; }
         body.skin-paper .pagination { border-top-color: #d4c4a8; }
         body.skin-paper .pagination button { background: #f0e6d6; border-color: #d4c4a8; color: #6b5440; }
@@ -1105,9 +1126,11 @@ if ($resetLog) {
         body.skin-dark-green .sidebar { background: #0a1612; border-right-color: #1a3a2a; }
         body.skin-dark-green .sidebar-header { border-bottom-color: #1a3a2a; }
         body.skin-dark-green .sidebar-header h2 { color: #7ec699; }
-        body.skin-dark-green .sidebar-header .user-info { color: #4a7a5c; }
+        body.skin-dark-green .sidebar-header .user-info { color: #4a7a5c; background: #122218; }
+        body.skin-dark-green .sidebar-header .user-info:hover { background: #2d8659; color: #fff; }
+        body.skin-dark-green .user-sep { background: #1a3a2a; }
         body.skin-dark-green .sidebar-actions { border-bottom-color: #1a3a2a; }
-        body.skin-dark-green .btn-primary { background: linear-gradient(135deg, #2d8659 0%, #1a5c38 100%); }
+        body.skin-dark-green .btn-new-note { background: linear-gradient(135deg, #2d8659 0%, #1a5c38 100%); }
         body.skin-dark-green .search-box { background: #060e0a; border-bottom-color: #1a3a2a; }
         body.skin-dark-green .search-box .search-icon { color: #3a6a4c; }
         body.skin-dark-green .search-box input { background: #0d1f17; border-color: #1a3a2a; color: #b8e0cc; }
@@ -1127,10 +1150,9 @@ if ($resetLog) {
         body.skin-dark-green .editor-header { background: #0a1612; border-bottom-color: #1a3a2a; }
         body.skin-dark-green .editor-header h3, body.skin-dark-green .title-input { color: #7ec699; }
         body.skin-dark-green .title-input::placeholder { color: #3a6a4c; }
-        body.skin-dark-green .btn-logout { background: #0a1612; border-color: #1a3a2a; color: #4a7a5c; }
-        body.skin-dark-green .btn-logout:hover { color: #f87171; border-color: #f87171; background: #2a1515; }
-        body.skin-dark-green .btn-change-pwd { background: #0a1612; border-color: #1a3a2a; color: #4a7a5c; }
-        body.skin-dark-green .btn-change-pwd:hover { color: #4ade80; border-color: #4ade80; background: #0d2015; }
+        body.skin-dark-green .btn-logout { color: #4a7a5c; border-color: #1a3a2a; background: #0a1612; }
+        body.skin-dark-green .btn-logout:hover { background: #2a1515; border-color: #f87171; color: #f87171; }
+        body.skin-dark-green .sidebar-footer { border-top-color: #1a3a2a; }
         body.skin-dark-green .version-link, body.skin-dark-green .search-result-info { color: #3a6a4c; }
         body.skin-dark-green .version-link:hover { color: #4ade80; }
         body.skin-dark-green .btn-action { background: #1a3a2a; border-color: #2a5a3c; color: #8fccaa; }
@@ -1189,9 +1211,11 @@ if ($resetLog) {
         body.skin-dark-warm .sidebar { background: #1a1814; border-right-color: #2e2820; }
         body.skin-dark-warm .sidebar-header { border-bottom-color: #2e2820; }
         body.skin-dark-warm .sidebar-header h2 { color: #e8c170; }
-        body.skin-dark-warm .sidebar-header .user-info { color: #786848; }
+        body.skin-dark-warm .sidebar-header .user-info { color: #786848; background: #262218; }
+        body.skin-dark-warm .sidebar-header .user-info:hover { background: #c9923a; color: #fff; }
+        body.skin-dark-warm .user-sep { background: #2e2820; }
         body.skin-dark-warm .sidebar-actions { border-bottom-color: #2e2820; }
-        body.skin-dark-warm .btn-primary { background: linear-gradient(135deg, #c9923a 0%, #9a6b18 100%); }
+        body.skin-dark-warm .btn-new-note { background: linear-gradient(135deg, #c9923a 0%, #9a6b18 100%); }
         body.skin-dark-warm .search-box { background: #120f0c; border-bottom-color: #2e2820; }
         body.skin-dark-warm .search-box .search-icon { color: #584830; }
         body.skin-dark-warm .search-box input { background: #1e1a14; border-color: #3a3028; color: #ddd0bc; }
@@ -1211,10 +1235,9 @@ if ($resetLog) {
         body.skin-dark-warm .editor-header { background: #161310; border-bottom-color: #2e2820; }
         body.skin-dark-warm .editor-header h3, body.skin-dark-warm .title-input { color: #d4a84a; }
         body.skin-dark-warm .title-input::placeholder { color: #584830; }
-        body.skin-dark-warm .btn-logout { background: #1a1814; border-color: #2e2820; color: #786848; }
-        body.skin-dark-warm .btn-logout:hover { color: #e88870; border-color: #e88870; background: #2a1814; }
-        body.skin-dark-warm .btn-change-pwd { background: #1a1814; border-color: #2e2820; color: #786848; }
-        body.skin-dark-warm .btn-change-pwd:hover { color: #e8c170; border-color: #e8c170; background: #2a2418; }
+        body.skin-dark-warm .btn-logout { color: #786848; border-color: #2e2820; background: #1a1814; }
+        body.skin-dark-warm .btn-logout:hover { background: #2a1814; border-color: #e88870; color: #e88870; }
+        body.skin-dark-warm .sidebar-footer { border-top-color: #2e2820; }
         body.skin-dark-warm .version-link, body.skin-dark-warm .search-result-info { color: #584830; }
         body.skin-dark-warm .version-link:hover { color: #e8c170; }
         body.skin-dark-warm .btn-action { background: #2e2820; border-color: #3a3028; color: #b0a078; }
@@ -1282,7 +1305,7 @@ if ($resetLog) {
         body.skin-sakura .editor-header h3 { color: #c07088; }
         body.skin-sakura .note-item:hover { background: #ffebf0; }
         body.skin-sakura .note-item.active { background: #fde4ec; border-left-color: #f0a0b8; }
-        body.skin-sakura .btn-primary { background: linear-gradient(135deg, #f0a0b8, #d08098); }
+        body.skin-sakura .btn-new-note { background: linear-gradient(135deg, #f0a0b8, #d08098); }
         body.skin-sakura .title-input { color: #7a3b52; }
         body.skin-sakura .title-input::placeholder { color: #d4a0b0; }
         body.skin-sakura .skin-option.active .skin-dot { border-color: #f0a0b8; }
@@ -1291,10 +1314,8 @@ if ($resetLog) {
         body.skin-sakura .search-box input { background: #fff0f4; border-color: #f5d0dc; color: #7a3b52; }
         body.skin-sakura .search-box input:focus { border-color: #f0a0b8; }
         body.skin-sakura .search-box .search-clear { background: #f5dce4; }
-        body.skin-sakura .btn-logout { background: #fff5f7; border-color: #f5dce4; color: #d4a0b0; }
-        body.skin-sakura .btn-logout:hover { color: #e0808a; border-color: #e0808a; background: #ffe8ee; }
-        body.skin-sakura .btn-change-pwd { background: #fff5f7; border-color: #f5dce4; color: #d4a0b0; }
-        body.skin-sakura .btn-change-pwd:hover { color: #f0a0b8; border-color: #f0a0b8; background: #fde4ec; }
+        body.skin-sakura .btn-logout { color: #d4a0b0; border-color: #f5dce4; background: #fff5f7; }
+        body.skin-sakura .btn-logout:hover { background: #ffe8ee; border-color: #e0808a; color: #e0808a; }
         body.skin-sakura .btn-action { background: #fff5f7; border-color: #f5dce4; color: #c07088; }
         body.skin-sakura .btn-action:hover { border-color: #f0a0b8; background: #fde4ec; }
         body.skin-sakura .btn-action.save-btn { background: #f0a0b8; color: #fff; border-color: #f0a0b8; }
@@ -1322,7 +1343,8 @@ if ($resetLog) {
         body.skin-sakura .shortcut-hint kbd { background: #fff0f4; border-color: #f5dce4; }
         body.skin-sakura .sidebar-header { border-bottom-color: #f5dce4; }
         body.skin-sakura .sidebar-header h2 { color: #c07088; }
-        body.skin-sakura .sidebar-header .user-info { color: #d4a0b0; }
+        body.skin-sakura .sidebar-header .user-info { color: #d4a0b0; background: #ffe8ec; }
+        body.skin-sakura .sidebar-header .user-info:hover { background: #f0a0b8; color: #fff; }
         body.skin-sakura .sidebar-actions { border-bottom-color: #f5dce4; }
         body.skin-sakura .pagination { border-top-color: #f5dce4; }
         body.skin-sakura .pagination button { background: #fff5f7; border-color: #f5dce4; color: #c07088; }
@@ -1365,10 +1387,8 @@ if ($resetLog) {
         body.skin-lavender .search-box input { background: #f4f0ff; border-color: #dcd0f8; color: #4a3a6e; }
         body.skin-lavender .search-box input:focus { border-color: #b8a0e8; }
         body.skin-lavender .search-box .search-clear { background: #e8e0f4; }
-        body.skin-lavender .btn-logout { background: #f8f6ff; border-color: #e8e0f4; color: #b0a0d0; }
-        body.skin-lavender .btn-logout:hover { color: #e08090; border-color: #e08090; background: #fce8ee; }
-        body.skin-lavender .btn-change-pwd { background: #f8f6ff; border-color: #e8e0f4; color: #b0a0d0; }
-        body.skin-lavender .btn-change-pwd:hover { color: #b8a0e8; border-color: #b8a0e8; background: #ebe2fc; }
+        body.skin-lavender .btn-logout { color: #b0a0d0; border-color: #e8e0f4; background: #f8f6ff; }
+        body.skin-lavender .btn-logout:hover { background: #fce8ee; border-color: #e08090; color: #e08090; }
         body.skin-lavender .btn-action { background: #f8f6ff; border-color: #e8e0f4; color: #9078c0; }
         body.skin-lavender .btn-action:hover { border-color: #b8a0e8; background: #ebe2fc; }
         body.skin-lavender .btn-action.save-btn { background: #b8a0e8; color: #fff; border-color: #b8a0e8; }
@@ -1396,7 +1416,8 @@ if ($resetLog) {
         body.skin-lavender .shortcut-hint kbd { background: #f4f0ff; border-color: #e8e0f4; }
         body.skin-lavender .sidebar-header { border-bottom-color: #e8e0f4; }
         body.skin-lavender .sidebar-header h2 { color: #9078c0; }
-        body.skin-lavender .sidebar-header .user-info { color: #b0a0d0; }
+        body.skin-lavender .sidebar-header .user-info { color: #b0a0d0; background: #e8e0f8; }
+        body.skin-lavender .sidebar-header .user-info:hover { background: #b8a0e8; color: #fff; }
         body.skin-lavender .sidebar-actions { border-bottom-color: #e8e0f4; }
         body.skin-lavender .pagination { border-top-color: #e8e0f4; }
         body.skin-lavender .pagination button { background: #f8f6ff; border-color: #e8e0f4; color: #9078c0; }
@@ -1430,7 +1451,7 @@ if ($resetLog) {
         body.skin-peach .editor-header h3 { color: #d09070; }
         body.skin-peach .note-item:hover { background: #fff0e8; }
         body.skin-peach .note-item.active { background: #ffe8da; border-left-color: #ffb088; }
-        body.skin-peach .btn-primary { background: linear-gradient(135deg, #ffb088, #e89870); }
+        body.skin-peach .btn-new-note { background: linear-gradient(135deg, #ffb088, #e89870); }
         body.skin-peach .title-input { color: #6b4a3c; }
         body.skin-peach .title-input::placeholder { color: #d4b8a8; }
         body.skin-peach .skin-option.active .skin-dot { border-color: #ffb088; }
@@ -1439,10 +1460,8 @@ if ($resetLog) {
         body.skin-peach .search-box input { background: #fff3ed; border-color: #ffd8c4; color: #6b4a3c; }
         body.skin-peach .search-box input:focus { border-color: #ffb088; }
         body.skin-peach .search-box .search-clear { background: #f5e0d4; }
-        body.skin-peach .btn-logout { background: #fff8f4; border-color: #f5e0d4; color: #d4a090; }
-        body.skin-peach .btn-logout:hover { color: #e0806a; border-color: #e0806a; background: #ffe8e0; }
-        body.skin-peach .btn-change-pwd { background: #fff8f4; border-color: #f5e0d4; color: #d4a090; }
-        body.skin-peach .btn-change-pwd:hover { color: #ffb088; border-color: #ffb088; background: #ffe8da; }
+        body.skin-peach .btn-logout { color: #d4a090; border-color: #f5e0d4; background: #fff8f4; }
+        body.skin-peach .btn-logout:hover { background: #ffe8e0; border-color: #e0806a; color: #e0806a; }
         body.skin-peach .btn-action { background: #fff8f4; border-color: #f5e0d4; color: #d09070; }
         body.skin-peach .btn-action:hover { border-color: #ffb088; background: #ffe8da; }
         body.skin-peach .btn-action.save-btn { background: #ffb088; color: #fff; border-color: #ffb088; }
@@ -1470,7 +1489,8 @@ if ($resetLog) {
         body.skin-peach .shortcut-hint kbd { background: #fff3ed; border-color: #f5e0d4; }
         body.skin-peach .sidebar-header { border-bottom-color: #f5e0d4; }
         body.skin-peach .sidebar-header h2 { color: #d09070; }
-        body.skin-peach .sidebar-header .user-info { color: #d4a090; }
+        body.skin-peach .sidebar-header .user-info { color: #d4a090; background: #ffe8da; }
+        body.skin-peach .sidebar-header .user-info:hover { background: #ffb088; color: #fff; }
         body.skin-peach .sidebar-actions { border-bottom-color: #f5e0d4; }
         body.skin-peach .pagination { border-top-color: #f5e0d4; }
         body.skin-peach .pagination button { background: #fff8f4; border-color: #f5e0d4; color: #d09070; }
@@ -1697,13 +1717,13 @@ if ($resetLog) {
     <div class="trash-panel">
         <div class="trash-header">
             <h3>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fa8c16" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fa8c16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14l-2 13a1.5 1.5 0 0 1-1.5 1.5H8.5A1.5 1.5 0 0 1 7 20Z"/><line x1="3" y1="7" x2="21" y2="7"/><line x1="9" y1="11" x2="8" y2="20"/><line x1="12" y1="11" x2="12" y2="20"/><line x1="15" y1="11" x2="16" y2="20"/><line x1="5.5" y1="14" x2="18.5" y2="14"/><line x1="5.5" y1="17" x2="18.5" y2="17"/></svg>
                 回收站
                 <span style="font-weight:400;font-size:13px;color:#999;margin-left:4px;" id="trashCount"></span>
             </h3>
             <div class="trash-actions">
                 <button class="btn-trash danger" onclick="emptyTrash()">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><line x1="10" y1="10" x2="10" y2="17"/><line x1="14" y1="10" x2="14" y2="17"/></svg>
                     清空回收站
                 </button>
                 <button class="btn-trash" onclick="closeTrash()">
@@ -1730,17 +1750,12 @@ if ($resetLog) {
     <!-- 侧边栏 -->
     <div class="sidebar">
         <div class="sidebar-header">
-            <h2>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
-                <?= $config['app_name'] ?>
-            </h2>
-            <div class="user-info"><?= htmlspecialchars($username) ?>，欢迎回来</div>
-        </div>
-        <div class="sidebar-actions">
-            <button class="btn btn-primary" onclick="createNote()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                新建
-            </button>
+            <div class="header-left">
+                <img src="logo.png" class="logo-img" alt="轻记">
+                <span class="user-sep"></span>
+                <span class="user-info" onclick="openChangePassword()" title="点击修改密码"><?= htmlspecialchars($username) ?></span>
+            </div>
+            <button class="btn-new-note" onclick="createNote()" title="新建笔记">+</button>
         </div>
         <div class="search-box" id="searchBox">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="search-icon"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -1752,14 +1767,12 @@ if ($resetLog) {
         <div class="pagination" id="pagination"></div>
         <div class="sidebar-footer">
             <div class="logout-countdown" id="logoutCountdown"></div>
-            <button class="btn-change-pwd" onclick="openChangePassword()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                修改密码
-            </button>
-            <button class="btn-logout" onclick="location.href='logout.php'">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                退出登录
-            </button>
+            <div class="footer-actions">
+                <button class="btn-logout" onclick="location.href='logout.php'">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    <span>退出登录</span>
+                </button>
+            </div>
             <div class="version-info">
                 <a href="admin/changelog.php" target="_blank" class="version-link">v<?= $config['app_version'] ?></a>
             </div>
@@ -1801,7 +1814,7 @@ if ($resetLog) {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 </button>
                 <button class="btn-action trash-btn" onclick="openTrash()" data-tooltip="回收站">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14l-2 13a1.5 1.5 0 0 1-1.5 1.5H8.5A1.5 1.5 0 0 1 7 20Z"/><line x1="3" y1="7" x2="21" y2="7"/><line x1="9" y1="11" x2="8" y2="20"/><line x1="12" y1="11" x2="12" y2="20"/><line x1="15" y1="11" x2="16" y2="20"/><line x1="5.5" y1="14" x2="18.5" y2="14"/><line x1="5.5" y1="17" x2="18.5" y2="17"/></svg>
                 </button>
                 <button class="btn-action" id="skinBtn" onclick="toggleSkinSelector()" data-tooltip="更换皮肤">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24"/></svg>

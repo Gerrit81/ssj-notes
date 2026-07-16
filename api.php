@@ -1,6 +1,6 @@
 <?php
 /**
- * 内网记事本 - API 接口
+ * 轻记 - API 接口
  */
 define('API_REQUEST', true);
 require_once __DIR__ . '/init.php';

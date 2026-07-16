@@ -1,13 +1,13 @@
 <?php
 /**
- * 内网记事本 - 配置文件
+ * 轻记 - 配置文件
  */
 
 // 应用版本
-$config['app_version'] = '1.16.0';
+$config['app_version'] = '1.17.0';
 
 // 应用名称
-$config['app_name'] = '内网记事本';
+$config['app_name'] = '轻记';
 
 // 数据库文件路径
 $config['db_path'] = __DIR__ . '/data/notes.db';

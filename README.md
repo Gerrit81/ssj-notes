@@ -1,6 +1,6 @@
-# 📝 SSJ - 内网记事本
+# 轻记 - SSJ
 
-[![Version](https://img.shields.io/badge/version-1.16.0-blue.svg)](https://github.com)
+[![Version](https://img.shields.io/badge/version-1.7.3-blue.svg)](https://github.com)
 [![PHP](https://img.shields.io/badge/php-%3E%3D7.4-purple.svg)](https://php.net)
 [![SQLite](https://img.shields.io/badge/database-SQLite-orange.svg)](https://sqlite.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
