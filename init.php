@@ -60,6 +60,7 @@ function getDB(): PDO {
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
         $db->exec('PRAGMA journal_mode=WAL');
+        $db->exec('PRAGMA busy_timeout=60000');
         $db->exec('PRAGMA foreign_keys=ON');
     }
     return $db;

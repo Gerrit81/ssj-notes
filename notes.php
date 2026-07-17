@@ -97,13 +97,13 @@ if ($resetLog) {
             padding: 10px 16px;
             border-bottom: 1px solid #f0f0f0;
             display: flex;
-            align-items: center;
+            align-items: flex-end;
             justify-content: space-between;
             gap: 8px;
         }
         .sidebar-header .header-left {
             display: flex;
-            align-items: center;
+            align-items: flex-end;
             gap: 10px;
             min-width: 0;
         }
@@ -144,6 +144,7 @@ if ($resetLog) {
             height: 22px;
             background: #e0e0e0;
             flex-shrink: 0;
+            margin-left: 6px;
         }
         .btn-new-note {
             flex-shrink: 0;
@@ -1643,7 +1644,6 @@ if ($resetLog) {
         }
 
 
-
         /* 快捷键提示 */
         .shortcut-hint {
             padding: 4px 24px;
@@ -1916,6 +1916,7 @@ if ($resetLog) {
                     <div class="skin-dot" style="background:linear-gradient(135deg,#ffd0b8,#ffb898);"></div>
                     <span class="skin-label">蜜桃橘</span>
                 </div>
+
             </div>
 
             <div class="dropdown-selector auto-save-selector" id="autoSaveSelector">
@@ -1946,7 +1947,7 @@ if ($resetLog) {
         </div>
         <div class="status-bar" id="statusBar">
             <span class="word-count">字符数：<strong id="charCount">0</strong> &nbsp; 不计空格：<strong id="charCountNoSpace">0</strong></span>
-            <span class="shortcut-hint"><kbd>Ctrl+N</kbd> 新建 &nbsp; <kbd>Ctrl+F</kbd> 搜索 &nbsp; <kbd>Ctrl+S</kbd> 保存 &nbsp; <kbd>Ctrl+D</kbd> 分隔符 &nbsp; <kbd>Esc</kbd> 清空搜索</span>
+            <span class="shortcut-hint"><kbd>Ctrl+F</kbd> 搜索 &nbsp; <kbd>Ctrl+S</kbd> 保存 &nbsp; <kbd>Ctrl+D</kbd> 分隔符 &nbsp; <kbd>Esc</kbd> 清空搜索</span>
         </div>
     </div>
 </div>
@@ -2651,12 +2652,6 @@ if ($resetLog) {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') {
             e.preventDefault();
             saveNote();
-            return;
-        }
-        // Ctrl+N / Cmd+N：新建笔记
-        if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
-            e.preventDefault();
-            createNote();
             return;
         }
         // Ctrl+F / Cmd+F：聚焦搜索框

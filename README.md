@@ -1,6 +1,6 @@
 # 轻记 - SSJ
 
-[![Version](https://img.shields.io/badge/version-1.17.0-blue.svg)](https://github.com)
+[![Version](https://img.shields.io/badge/version-1.18.3-blue.svg)](https://github.com)
 [![PHP](https://img.shields.io/badge/php-%3E%3D7.4-purple.svg)](https://php.net)
 [![SQLite](https://img.shields.io/badge/database-SQLite-orange.svg)](https://sqlite.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -22,13 +22,14 @@
 - **📄 TXT 导出** — 一键导出为 UTF-8 编码的 .txt 文件
 
 ### 个性化
+- **🖼️ 登录页双风格** — 默认毛玻璃（彩色渐变 + 磨砂卡片） + 备用紫色渐变（`index-alt.php`），轻松切换
 - **🎨 10 套护眼皮肤** — 默认白、护眼绿、暖黄纸、暗夜黑、牛皮纸、暗夜绿、暖夜色、樱花粉、薰衣草、蜜桃橘
 - **🔤 字体切换** — 默认、宋体、楷体、仿宋、Consolas、Monaco 共 6 种字体
 - **📐 字号调节** — 12px ~ 24px 自由调节
 - **💡 即时 Tooltip** — 工具栏按钮鼠标悬停零延迟提示
 
 ### 快捷键
-- **⌨️** `Ctrl+N` 新建 | `Ctrl+F` 搜索 | `Ctrl+S` 保存 | `Esc` 清空搜索
+- **⌨️** `Ctrl+F` 搜索 | `Ctrl+S` 保存 | `Ctrl+D` 分隔符 | `Esc` 清空搜索
 
 ### 安全
 - **👥 多用户隔离** — 每个用户只能访问自己的笔记，数据完全隔离
@@ -84,7 +85,9 @@ $config['admin_password'] = 'your-password';  // 改成你自己的密码
 
 ```
 SSJ/
-├── index.php              # 登录/注册页
+├── index.php              # 登录/注册页（毛玻璃风格 · 默认）
+├── index-alt.php          # 登录页备用（紫色渐变风格）
+├── auth.php               # 登录页认证共享逻辑
 ├── notes.php              # 笔记主页面（编辑器 + 侧边栏）
 ├── api.php                # RESTful API（前后端数据交互）
 ├── admin.php              # 管理后台（用户管理、统计、日志）
