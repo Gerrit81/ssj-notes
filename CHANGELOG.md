@@ -1,5 +1,54 @@
 # 更新日志
 
+## v1.20.2 (2026-07-20)
+
+### 修复
+- 修复「保持登录」用户切回浏览器标签页时被误判超时踢出（visibilitychange 未检查 KEEP_LOGIN 标志）
+- 保持登录用户切换标签页时不再触发笔记列表重载，避免不必要的「类刷新」闪烁
+
+## v1.20.1 (2026-07-20)
+
+### 修复
+- 修复「保持登录」勾选后仍被登出的问题：PHP 默认 `session.gc_maxlifetime` 仅 1440 秒（24分钟），
+  导致服务端 GC 提前清理会话文件。现已同步为 7 天，并改用项目独立会话目录避免其他应用干扰
+
+## v1.20.0 (2026-07-20)
+
+### 新增
+- 登录页新增「保持登录」选项，勾选后跳过不活动超时检测，仅手动登出或会话过期时退出
+- 适合局域网独立电脑场景，用户无需担心闲置超时被踢出
+
+## v1.19.2 (2026-07-20)
+
+### 变更
+- `_header.php` 重命名为 `header.php`，遵循标准命名规范
+- 新增根目录 `.htaccess`，禁止直接访问 `header.php`、`config.php`、`init.php`
+- `header.php` 内置直接访问防护（PHP 端 + Apache 端双重保护）
+
+## v1.19.1 (2026-07-18)
+
+### 修复
+- 修复 JS 文件残留 PHP 短标签导致脚本崩溃、笔记不显示、皮肤切换失灵等问题
+- 修复 notes.css 提取时损坏的 `.shortcut-hint kbd` 空规则块
+
+## v1.19.0 (2026-07-18)
+
+### 新增
+- **代码模块化拆分**：CSS/JS 从 PHP 文件提取为独立静态文件
+  - `assets/css/notes.css` — 笔记页全部样式（~1600 行）
+  - `assets/js/notes.js` — 笔记页全部脚本（~1100 行）
+  - `assets/css/admin.css` — 管理后台样式
+  - `assets/js/admin.js` — 管理后台脚本
+  - `assets/css/login.css` — 登录页样式
+  - `assets/css/login-alt.css` — 备用登录页样式
+  - `assets/css/changelog.css` — 更新日志页样式
+- **公共 HTML 头部**：新增 `header.php` 统一管理 DOCTYPE、meta、favicon
+- **消除重复代码**：`index-alt.php` 改为引用 `auth.php`，减少 ~300 行重复认证逻辑
+
+### 优化
+- 各 PHP 文件大幅精简（notes.php: 3068→~450 行，admin.php: 1695→~540 行）
+- JS 中 PHP 变量改为 `data-*` 属性传递，彻底分离前后端
+
 ## v1.18.3 (2026-07-17)
 
 ### 优化

@@ -14,6 +14,27 @@ if (!is_dir($data_dir)) {
 
 // --- 会话启动 ---
 if (session_status() === PHP_SESSION_NONE) {
+    // 使用项目内独立会话目录，避免其他应用的 GC 策略干扰
+    $sessionDir = __DIR__ . '/data/sessions';
+    if (!is_dir($sessionDir)) {
+        mkdir($sessionDir, 0700, true);
+    }
+    // 建 .htaccess 禁止直接访问会话文件
+    $ht = $sessionDir . '/.htaccess';
+    if (!file_exists($ht)) {
+        file_put_contents($ht, "Require all denied\n");
+    }
+    $indexFile = $sessionDir . '/index.php';
+    if (!file_exists($indexFile)) {
+        file_put_contents($indexFile, '<?php // 防止目录列表');
+    }
+    session_save_path($sessionDir);
+
+    // 关键：让服务端 GC 寿命与 Cookie 有效期一致，否则会话文件会被提前清理
+    ini_set('session.gc_maxlifetime', (string)$config['session_lifetime']);
+    // 关闭 GC 按概率触发（PHP 默认 1/100），改为依赖项目自身管理
+    // 此处保留默认概率，因为 gc_maxlifetime 已同步，GC 清理只删真正过期的
+
     $cookieParams = [
         'lifetime' => $config['session_lifetime'],
         'path' => '/',
@@ -23,29 +44,36 @@ if (session_status() === PHP_SESSION_NONE) {
         'samesite' => 'Lax',
     ];
     session_set_cookie_params($cookieParams);
+    session_name('JSBSESSID');
     session_start();
 }
 
 // --- 不活动超时检测 ---
 if (isLoggedIn()) {
-    $timeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$config['session_timeout_minutes']);
-    if ($timeoutMinutes > 0) {
-        $lastActivity = $_SESSION['last_activity'] ?? 0;
-        if ($lastActivity > 0 && (time() - $lastActivity) >= $timeoutMinutes * 60) {
-            appLog("用户 " . currentUsername() . " 因超过 {$timeoutMinutes} 分钟不活动自动登出");
-            logoutUser();
-            // 如果是 API/AJAX 请求，返回 401；否则重定向到首页
-            $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
-                || (defined('API_REQUEST') && API_REQUEST);
-            if ($isAjax) {
-                http_response_code(401);
-                header('Content-Type: application/json; charset=utf-8');
-                echo json_encode(['error' => '会话已超时，请重新登录', 'code' => 'session_timeout']);
+    // 勾选了「保持登录」的用户跳过不活动超时检测
+    if (empty($_SESSION['keep_login'])) {
+        $timeoutMinutes = (int)getSetting('session_timeout_minutes', (string)$config['session_timeout_minutes']);
+        if ($timeoutMinutes > 0) {
+            $lastActivity = $_SESSION['last_activity'] ?? 0;
+            if ($lastActivity > 0 && (time() - $lastActivity) >= $timeoutMinutes * 60) {
+                appLog("用户 " . currentUsername() . " 因超过 {$timeoutMinutes} 分钟不活动自动登出");
+                logoutUser();
+                // 如果是 API/AJAX 请求，返回 401；否则重定向到首页
+                $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
+                    || (defined('API_REQUEST') && API_REQUEST);
+                if ($isAjax) {
+                    http_response_code(401);
+                    header('Content-Type: application/json; charset=utf-8');
+                    echo json_encode(['error' => '会话已超时，请重新登录', 'code' => 'session_timeout']);
+                    exit;
+                }
+                header('Location: index.php?timeout=1');
                 exit;
             }
-            header('Location: index.php?timeout=1');
-            exit;
+            $_SESSION['last_activity'] = time();
         }
+    } else {
+        // 保持登录用户仍更新 last_activity，用于管理员后台查看在线状态
         $_SESSION['last_activity'] = time();
     }
 }
@@ -249,6 +277,10 @@ function loginUser(array $user): void {
     $_SESSION['font_family'] = $user['font_family'] ?? 'default';
     $_SESSION['font_size'] = (int)($user['font_size'] ?? 15);
     $_SESSION['auto_save_interval'] = (int)($user['auto_save_interval'] ?? 3);
+    // 记住登录（跳过不活动超时检测）
+    if (!empty($_POST['keep_login'])) {
+        $_SESSION['keep_login'] = true;
+    }
     session_regenerate_id(true);
 }
 

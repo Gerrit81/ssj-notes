@@ -4,6 +4,57 @@
  */
 $changelog = [
     [
+        'version' => '1.20.2',
+        'date' => '2026-07-20',
+        'changes' => [
+            '修复「保持登录」用户切回浏览器标签页时被误判超时踢出',
+            '保持登录用户切换标签页不再触发笔记列表重载，消除切换闪烁',
+        ],
+    ],
+    [
+        'version' => '1.20.1',
+        'date' => '2026-07-20',
+        'changes' => [
+            '修复「保持登录」失效：PHP 默认 session.gc_maxlifetime 仅 24 分钟，改为与 Cookie 同步 7 天',
+            '会话文件改用项目独立 data/sessions/ 目录存储，避免其他应用 GC 策略干扰',
+        ],
+    ],
+    [
+        'version' => '1.20.0',
+        'date' => '2026-07-20',
+        'changes' => [
+            '新增登录页「保持登录」选项，勾选后跳过不活动超时，仅手动登出时退出',
+            '适合局域网独立电脑场景，超时设置不影响已勾选保持登录的用户',
+        ],
+    ],
+    [
+        'version' => '1.19.2',
+        'date' => '2026-07-20',
+        'changes' => [
+            '_header.php 重命名为 header.php，遵循标准命名规范',
+            '新增 .htaccess 及 PHP 内置双重访问保护，防止直接访问内部文件',
+        ],
+    ],
+    [
+        'version' => '1.19.1',
+        'date' => '2026-07-18',
+        'changes' => [
+            '修复 JS 文件残留 PHP 短标签导致脚本崩溃、笔记不显示、皮肤切换失灵',
+            '修复 notes.css 提取时损坏的空 CSS 规则块',
+        ],
+    ],
+    [
+        'version' => '1.19.0',
+        'date' => '2026-07-18',
+        'changes' => [
+            'CSS/JS 模块化拆分：全部提取为独立文件（assets/css/、assets/js/）',
+            '新增 header.php 公共 HTML 头部，消除重复 DOCTYPE/meta/favicon 代码',
+            'index-alt.php 改用 auth.php，消除 ~300 行重复认证代码',
+            'notes.php 从 3068 行缩减至 ~450 行，admin.php 缩减至 ~540 行',
+            'JS 中 PHP 变量改为 data-* 属性传递，彻底分离前后端',
+        ],
+    ],
+    [
         'version' => '1.18.3',
         'date' => '2026-07-17',
         'changes' => [
@@ -429,108 +480,13 @@ $changelog = [
 // 版本号与 config.php 保持一致
 require_once __DIR__ . '/../config.php';
 $current_version = $config['app_version'];
+
+
+$pageTitleSuffix = '更新日志';
+require_once __DIR__ . '/../header.php';
 ?>
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>更新日志 - <?= $config['app_name'] ?></title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23667eea'/><rect x='20' y='25' width='60' height='12' rx='2' fill='white' opacity='0.9'/><rect x='20' y='42' width='50' height='8' rx='2' fill='white' opacity='0.7'/><rect x='20' y='54' width='40' height='8' rx='2' fill='white' opacity='0.7'/><rect x='20' y='66' width='55' height='8' rx='2' fill='white' opacity='0.7'/></svg>" type="image/svg+xml">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-            background: #f5f6fa;
-            color: #333;
-            min-height: 100vh;
-        }
-        .container {
-            max-width: 700px;
-            margin: 0 auto;
-            padding: 40px 24px;
-        }
-        h1 {
-            font-size: 24px;
-            margin-bottom: 6px;
-            color: #667eea;
-        }
-        .sub {
-            color: #888;
-            font-size: 14px;
-            margin-bottom: 32px;
-        }
-        .timeline {
-            position: relative;
-            padding-left: 30px;
-        }
-        .timeline::before {
-            content: '';
-            position: absolute;
-            left: 8px;
-            top: 0;
-            bottom: 0;
-            width: 2px;
-            background: #e0e0e0;
-        }
-        .version-block {
-            position: relative;
-            margin-bottom: 32px;
-        }
-        .version-dot {
-            position: absolute;
-            left: -26px;
-            top: 4px;
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            background: #667eea;
-            border: 3px solid #f5f6fa;
-            z-index: 1;
-        }
-        .version-header {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-        .version-date {
-            font-size: 13px;
-            color: #999;
-            margin-bottom: 12px;
-        }
-        .change-list {
-            list-style: none;
-            padding: 0;
-        }
-        .change-list li {
-            padding: 6px 0;
-            font-size: 14px;
-            color: #555;
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-        }
-        .change-list li::before {
-            content: '';
-            display: inline-block;
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: #667eea;
-            margin-top: 7px;
-            flex-shrink: 0;
-        }
-        .back-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            color: #667eea;
-            text-decoration: none;
-            font-size: 14px;
-            margin-bottom: 24px;
-        }
-        .back-link:hover { opacity: 0.7; }
-    </style>
+    <link rel="stylesheet" href="../assets/css/changelog.css?v=1.20.2">
+
 </head>
 <body>
 <div class="container">
