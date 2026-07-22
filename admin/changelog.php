@@ -4,6 +4,13 @@
  */
 $changelog = [
     [
+        'version' => '1.20.3',
+        'date' => '2026-07-21',
+        'changes' => [
+            '修复管理后台顶部显示 PHP 源码的问题（缺少 ＜?php 开标签）',
+        ],
+    ],
+    [
         'version' => '1.20.2',
         'date' => '2026-07-20',
         'changes' => [
@@ -485,7 +492,7 @@ $current_version = $config['app_version'];
 $pageTitleSuffix = '更新日志';
 require_once __DIR__ . '/../header.php';
 ?>
-    <link rel="stylesheet" href="../assets/css/changelog.css?v=1.20.2">
+    <link rel="stylesheet" href="../assets/css/changelog.css?v=1.20.3">
 
 </head>
 <body>

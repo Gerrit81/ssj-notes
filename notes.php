@@ -49,7 +49,7 @@ require_once __DIR__ . '/header.php';
 ?>
     <meta name="csrf-token" content="<?= $csrf_token ?>">
     <meta name="session-timeout" content="<?= $sessionTimeoutMinutes ?>">
-    <link rel="stylesheet" href="assets/css/notes.css?v=1.20.2">
+    <link rel="stylesheet" href="assets/css/notes.css?v=1.20.3">
 
 </head>
 <body class="skin-<?= $currentSkin ?>" data-skin="<?= $currentSkin ?>" data-font-family="<?= $currentFontFamily ?>" data-font-size="<?= $currentFontSize ?>" data-auto-save-interval="<?= $currentAutoSaveInterval ?>" data-password-min-length="<?= getPasswordMinLength() ?>" data-keep-login="<?= empty($_SESSION['keep_login']) ? 0 : 1 ?>">
@@ -341,7 +341,7 @@ require_once __DIR__ . '/header.php';
 </div>
 </div>
 
-<script src="assets/js/notes.js?v=1.20.2"></script>
+<script src="assets/js/notes.js?v=1.20.3"></script>
 
 </body>
 </html>

@@ -8,7 +8,7 @@ require_once __DIR__ . '/auth.php';
 $pageTitleSuffix = '登录';
 require_once __DIR__ . '/header.php';
 ?>
-    <link rel="stylesheet" href="assets/css/login.css?v=1.20.2">
+    <link rel="stylesheet" href="assets/css/login.css?v=1.20.3">
 
 </head>
 <body>

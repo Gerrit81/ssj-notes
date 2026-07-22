@@ -497,10 +497,11 @@ $lastBackupTime = getSetting('last_backup_time', '');
 $totalBackupSize = 0;
 foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
 ?>
+<?php
 $pageTitleSuffix = '管理后台';
 require_once __DIR__ . '/header.php';
 ?>
-    <link rel="stylesheet" href="assets/css/admin.css?v=1.20.2">
+    <link rel="stylesheet" href="assets/css/admin.css?v=1.20.3">
 
 </head>
 <body>
@@ -1198,7 +1199,7 @@ require_once __DIR__ . '/header.php';
     </div>
 </div>
 
-<script src="assets/js/admin.js?v=1.20.2"></script>
+<script src="assets/js/admin.js?v=1.20.3"></script>
 
 </body>
 </html>
