@@ -4,13 +4,22 @@
  */
 
 // 应用版本
-$config['app_version'] = '1.20.3';
+$config['app_version'] = '1.27.0';
 
 // 应用名称
 $config['app_name'] = '轻记';
 
-// 数据库文件路径
-$config['db_path'] = __DIR__ . '/data/notes.db';
+// ████████████████████████████████████████████████████
+// 数据存储根目录（数据库、备份、会话、日志）
+// 部署到外网 VPS 时，强烈建议改为网站目录外的路径
+//   示例：$config['data_dir'] = '/www/data/notes';
+// 留空则自动使用程序目录下的 data/ 子目录（适合 NAS/本地）
+// ████████████████████████████████████████████████████
+$config['data_dir'] = '';
+
+// 数据库文件路径（单独指定可覆盖 data_dir 中的默认位置）
+// 留空则自动使用 data_dir/notes.db
+$config['db_path'] = '';
 
 // 会话有效期（秒），默认7天
 $config['session_lifetime'] = 604800;

@@ -13,7 +13,7 @@ if (!isLoggedIn()) {
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 $method = $_SERVER['REQUEST_METHOD'];
-$postActions = ['save', 'delete', 'restore', 'permanent_delete', 'emptyTrash', 'setSkin', 'setFont', 'setAutoSave', 'togglePin', 'changePassword'];
+$postActions = ['save', 'delete', 'restore', 'permanent_delete', 'emptyTrash', 'setSkin', 'setFont', 'setAutoSave', 'togglePin', 'changePassword', 'uploadImage', 'deleteImage'];
 
 if (in_array($action, $postActions) && $method === 'POST') {
     if (!checkCSRF()) {
@@ -75,6 +75,15 @@ switch ($action) {
         break;
     case 'changePassword':
         handleChangePassword();
+        break;
+    case 'uploadImage':
+        handleUploadImage();
+        break;
+    case 'listImages':
+        handleListImages();
+        break;
+    case 'deleteImage':
+        handleDeleteImage();
         break;
     default:
         jsonResponse(400, ['error' => '未知操作']);
@@ -428,6 +437,137 @@ function handleStatus(): void {
         jsonResponse(200, ['username' => currentUsername(), 'is_admin' => true]);
     }
     jsonResponse(200, ['username' => currentUsername(), 'is_admin' => false]);
+}
+
+/** 上传图片 */
+function handleUploadImage(): void {
+    $userId = currentUserId();
+
+    // 验证文件
+    if (empty($_FILES['image'])) {
+        jsonResponse(400, ['error' => '未选择文件']);
+    }
+
+    $file = $_FILES['image'];
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        $errors = [
+            UPLOAD_ERR_INI_SIZE => '文件超过服务器限制',
+            UPLOAD_ERR_FORM_SIZE => '文件超过表单限制',
+            UPLOAD_ERR_PARTIAL => '文件上传不完整',
+            UPLOAD_ERR_NO_FILE => '未选择文件',
+        ];
+        jsonResponse(400, ['error' => $errors[$file['error']] ?? '上传错误']);
+    }
+
+    // 限制文件类型（图片 + PDF）
+    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'application/pdf'];
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mimeType = finfo_file($finfo, $file['tmp_name']);
+    finfo_close($finfo);
+
+    if (!in_array($mimeType, $allowedTypes)) {
+        jsonResponse(400, ['error' => '不支持的文件类型，仅支持图片（JPG/PNG/GIF/WebP/SVG/BMP）和 PDF']);
+    }
+
+    // 限制文件大小（最大10MB）
+    $maxSize = 10 * 1024 * 1024;
+    if ($file['size'] > $maxSize) {
+        jsonResponse(400, ['error' => '文件过大，最大支持 10MB']);
+    }
+
+    // 确保上传目录存在
+    $uploadDir = __DIR__ . '/data/uploads/';
+    if (!is_dir($uploadDir)) {
+        mkdir($uploadDir, 0755, true);
+        // 允许访问图片文件，禁止 PHP 执行和目录列表
+        file_put_contents($uploadDir . '.htaccess', "Options -Indexes\n<FilesMatch \"\.(php|phtml|phar)$\">\n    Deny from all\n</FilesMatch>\n");
+        file_put_contents($uploadDir . 'index.php', '<?php // 禁止直接访问');
+    }
+
+    // 按用户分目录
+    $userDir = $uploadDir . $userId . '/';
+    if (!is_dir($userDir)) {
+        mkdir($userDir, 0755, true);
+    }
+
+    // 生成唯一文件名
+    $isPdf = ($mimeType === 'application/pdf');
+    $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+    // 将SVG统一为svg扩展名
+    if ($mimeType === 'image/svg+xml') {
+        $ext = 'svg';
+    }
+    // PDF 统一为 pdf 扩展名
+    if ($isPdf) {
+        $ext = 'pdf';
+    }
+    if (empty($ext) || strlen($ext) > 5) {
+        $ext = $isPdf ? 'pdf' : 'jpg';
+    }
+    $safeExt = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $ext));
+    $filename = date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $safeExt;
+    $filepath = $userDir . $filename;
+
+    if (!move_uploaded_file($file['tmp_name'], $filepath)) {
+        jsonResponse(500, ['error' => '保存文件失败，请重试']);
+    }
+
+    // 返回相对路径
+    $relativePath = 'data/uploads/' . $userId . '/' . $filename;
+
+    $fileTypeLabel = $isPdf ? 'PDF' : '图片';
+    appLog("上传{$fileTypeLabel}: {$relativePath}");
+
+    jsonResponse(200, [
+        'message' => '上传成功',
+        'url' => $relativePath,
+        'filename' => $filename,
+        'size' => $file['size'],
+        'type' => $isPdf ? 'pdf' : 'image',
+    ]);
+}
+
+/** 列出已上传图片（管理员可查看所有，普通用户只看自己的） */
+function handleListImages(): void {
+    $result = listUploadedImages();
+    $userId = currentUserId();
+    if (!isAdmin()) {
+        // 普通用户只看自己的
+        $result['files'] = array_values(array_filter($result['files'], function($f) use ($userId) {
+            return (int)$f['userId'] === (int)$userId;
+        }));
+    }
+    jsonResponse(200, $result);
+}
+
+/** 删除上传的图片文件 */
+function handleDeleteImage(): void {
+    $path = $_POST['path'] ?? '';
+    if (empty($path)) {
+        jsonResponse(400, ['error' => '缺少文件路径']);
+    }
+    // 安全检查：只允许在 uploads 目录下删除
+    $fullPath = realpath(__DIR__ . '/' . $path);
+    $uploadDir = realpath(__DIR__ . '/data/uploads');
+    if (!$fullPath || !$uploadDir || strpos($fullPath, $uploadDir) !== 0) {
+        jsonResponse(403, ['error' => '无效的文件路径']);
+    }
+    // 普通用户只能删除自己的图片
+    if (!isAdmin()) {
+        $userId = currentUserId();
+        $expectedDir = $uploadDir . DIRECTORY_SEPARATOR . $userId;
+        if (strpos($fullPath, $expectedDir) !== 0) {
+            jsonResponse(403, ['error' => '只能删除自己上传的图片']);
+        }
+    }
+    if (!file_exists($fullPath)) {
+        jsonResponse(404, ['error' => '文件不存在']);
+    }
+    if (!unlink($fullPath)) {
+        jsonResponse(500, ['error' => '删除失败，请检查文件权限']);
+    }
+    appLog("删除图片: {$path}");
+    jsonResponse(200, ['message' => '已删除']);
 }
 
 /** 确认已阅读密码重置通知 */

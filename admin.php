@@ -208,13 +208,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     } else {
         $minutes = max(0, min(1440, (int)($_POST['session_timeout_minutes'] ?? 30)));
         setSetting('session_timeout_minutes', (string)$minutes);
+        $single = !empty($_POST['single_client_login']) ? '1' : '0';
+        setSetting('single_client_login', $single);
         if ($minutes === 0) {
             $message = "自动登出已关闭，会话仅在浏览器关闭或 Cookie 过期后失效。";
         } else {
             $message = "不活动自动登出时间已设置为 {$minutes} 分钟。";
         }
+        if ($single) {
+            $message .= " 单客户端登录已开启。";
+        }
         $messageType = 'success';
-        appLog("管理员设置不活动自动登出时间: {$minutes} 分钟");
+        appLog("管理员设置不活动自动登出时间: {$minutes} 分钟，单客户端登录: " . ($single ? '开' : '关'));
     }
 }
 
@@ -395,7 +400,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $messageType = 'error';
     } else {
         $keepDays = max(1, (int)($_POST['keep_days'] ?? 30));
-        $backupDir = __DIR__ . '/data/backups';
+        $backupDir = $config['data_dir'] . '/backups';
         $cutoff = time() - ($keepDays * 86400);
         $deleted = 0;
         if (is_dir($backupDir)) {
@@ -412,6 +417,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         appLog("管理员清理备份: {$keepDays} 天前，共 {$deleted} 个文件");
     }
 }
+
+// 处理数据库压缩（VACUUM）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'vacuum_db') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $dbPath = $config['db_path'];
+        $sizeBefore = file_exists($dbPath) ? filesize($dbPath) : 0;
+        $result = doVacuum();
+        if ($result['success']) {
+            $message = $result['message'];
+            $messageType = 'success';
+        } else {
+            $message = $result['message'];
+            $messageType = 'error';
+        }
+    }
+}
+
+// 处理删除上传图片
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_upload') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $path = $_POST['path'] ?? '';
+        if (empty($path)) {
+            $message = '缺少文件路径';
+            $messageType = 'error';
+        } else {
+            $fullPath = realpath(__DIR__ . '/' . $path);
+            $uploadDir = realpath(__DIR__ . '/data/uploads');
+            if (!$fullPath || !$uploadDir || strpos($fullPath, $uploadDir) !== 0) {
+                $message = '无效的文件路径';
+                $messageType = 'error';
+            } elseif (!file_exists($fullPath)) {
+                $message = '文件不存在';
+                $messageType = 'error';
+            } elseif (!unlink($fullPath)) {
+                $message = '删除失败，请检查文件权限';
+                $messageType = 'error';
+            } else {
+                $message = '已删除 ' . basename($path);
+                $messageType = 'success';
+                appLog("管理员删除上传图片: {$path}");
+            }
+        }
+    }
+}
+
+// 获取上传图片数据
+$imageData = listUploadedImages();
+$imageStats = getUploadStats();
 
 // 获取所有普通用户
 $stmt = $db->prepare("SELECT id, username, created_at FROM users WHERE is_admin = 0 ORDER BY created_at DESC");
@@ -460,6 +519,7 @@ $loginLogs = $stmt->fetchAll();
 
 $recycleBinDays = getSetting('recycle_bin_days', '30');
 $sessionTimeoutMinutes = getSetting('session_timeout_minutes', (string)$config['session_timeout_minutes']);
+$singleClientLogin = getSetting('single_client_login', '0');
 $userCount = count($users);
 
 // 部署模式相关
@@ -501,7 +561,7 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
 $pageTitleSuffix = '管理后台';
 require_once __DIR__ . '/header.php';
 ?>
-    <link rel="stylesheet" href="assets/css/admin.css?v=1.20.3">
+    <link rel="stylesheet" href="assets/css/admin.css?v=1.21.0">
 
 </head>
 <body>
@@ -887,6 +947,13 @@ require_once __DIR__ . '/header.php';
                             当前：超过 <strong style="color:#722ed1;"><?= $sessionTimeoutMinutes ?> 分钟</strong>不操作自动登出（每次操作会刷新计时）
                         <?php endif; ?>
                     </div>
+                    <div class="field" style="display:flex;align-items:center;gap:10px;margin-top:4px;">
+                        <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox" name="single_client_login" value="1" <?= $singleClientLogin === '1' ? 'checked' : '' ?> style="width:auto;margin:0;accent-color:#722ed1;">
+                            <span>只允许单客户端登录</span>
+                        </label>
+                        <span style="font-size:12px;color:#999;">开启后，在新设备登录会将旧设备强制登出</span>
+                    </div>
                     <button type="submit" class="btn-primary" style="align-self:flex-start;">保存设置</button>
                 </form>
             </div>
@@ -949,6 +1016,84 @@ require_once __DIR__ . '/header.php';
                     <span style="font-size:12px;color:#999;">天前</span>
                     <button type="submit" class="btn-sm" style="color:#cf1322;border-color:#ffccc7;font-size:12px;">清理</button>
                 </form>
+            </div>
+            <?php endif; ?>
+            <!-- 数据库优化 -->
+            <div style="border-top:1px solid #f5f5f5;padding-top:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+                <div><span style="color:#888;font-size:13px;">数据库大小</span><br>
+                    <strong style="font-size:15px;"><?= getDBSize() ?></strong></div>
+                <div style="font-size:12px;color:#999;flex:1;min-width:200px;">
+                    SQLite 删除数据后不会自动回收磁盘空间，如果数据库体积异常增大，可点击压缩按钮进行优化。
+                </div>
+                <form method="post" style="margin:0;">
+                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                    <input type="hidden" name="action" value="vacuum_db">
+                    <button type="submit" class="btn-sm" style="color:#52c41a;border-color:#b7eb8f;">压缩数据库</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 上传图片管理 -->
+    <div class="card">
+        <div class="card-header" style="justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#722ed1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                上传图片管理
+                <span style="font-size:12px;color:#999;font-weight:400;">共 <?= $imageStats['total'] ?> 张，<?= $imageStats['size'] ?>
+                    <?php if ($imageStats['orphaned'] > 0): ?>
+                    <span style="color:#fa8c16;">/ <?= $imageStats['orphaned'] ?> 张孤立</span>
+                    <?php endif; ?>
+                </span>
+            </div>
+        </div>
+        <div class="card-body">
+            <?php if (empty($imageData['files'])): ?>
+            <p style="color:#999;text-align:center;padding:20px 0;">暂无上传的图片</p>
+            <?php else: ?>
+            <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead><tr style="background:#fafafa;text-align:left;">
+                    <th style="padding:8px 10px;border-bottom:1px solid #f0f0f0;">预览</th>
+                    <th style="padding:8px 10px;border-bottom:1px solid #f0f0f0;">文件名</th>
+                    <th style="padding:8px 10px;border-bottom:1px solid #f0f0f0;">用户</th>
+                    <th style="padding:8px 10px;border-bottom:1px solid #f0f0f0;">大小</th>
+                    <th style="padding:8px 10px;border-bottom:1px solid #f0f0f0;">上传时间</th>
+                    <th style="padding:8px 10px;border-bottom:1px solid #f0f0f0;">引用状态</th>
+                    <th style="padding:8px 10px;border-bottom:1px solid #f0f0f0;text-align:center;">操作</th>
+                </tr></thead>
+                <tbody>
+                <?php foreach ($imageData['files'] as $file): ?>
+                <tr style="border-bottom:1px solid #f5f5f5;">
+                    <td style="padding:8px 10px;">
+                        <div style="width:60px;height:40px;overflow:hidden;border-radius:4px;background:#f0f0f0;">
+                            <img src="<?= htmlspecialchars($file['path']) ?>" alt="" style="width:100%;height:100%;object-fit:cover;" loading="lazy">
+                        </div>
+                    </td>
+                    <td style="padding:8px 10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<?= htmlspecialchars($file['filename']) ?>"><?= htmlspecialchars($file['filename']) ?></td>
+                    <td style="padding:8px 10px;"><?= htmlspecialchars($file['username']) ?></td>
+                    <td style="padding:8px 10px;"><?= $file['sizeStr'] ?></td>
+                    <td style="padding:8px 10px;"><?= $file['time'] ?></td>
+                    <td style="padding:8px 10px;">
+                        <?php if ($file['referenced']): ?>
+                        <span style="color:#52c41a;">已引用</span>
+                        <span style="font-size:11px;color:#999;">（笔记 #<?= implode(', #', $file['notes']) ?>）</span>
+                        <?php else: ?>
+                        <span style="color:#fa8c16;">孤立文件</span>
+                        <?php endif; ?>
+                    </td>
+                    <td style="padding:8px 10px;text-align:center;">
+                        <form method="post" onsubmit="return confirm('确定要删除这张图片吗？此操作不可恢复。<?= $file['referenced'] ? "\\n\\n注意：该图片仍在笔记中被引用！" : ''?>')" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                            <input type="hidden" name="action" value="delete_upload">
+                            <input type="hidden" name="path" value="<?= htmlspecialchars($file['path']) ?>">
+                            <button type="submit" class="btn-sm" style="color:#ff4d4f;border-color:#ffa39e;">删除</button>
+                        </form>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
             </div>
             <?php endif; ?>
         </div>
@@ -1199,7 +1344,7 @@ require_once __DIR__ . '/header.php';
     </div>
 </div>
 
-<script src="assets/js/admin.js?v=1.20.3"></script>
+<script src="assets/js/admin.js?v=1.21.0"></script>
 
 </body>
 </html>

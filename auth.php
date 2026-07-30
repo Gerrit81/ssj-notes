@@ -25,6 +25,11 @@ if (isset($_GET['timeout']) && $_GET['timeout'] === '1') {
     $notice = '登录会话已过期，请重新登录。';
 }
 
+// 被其他设备踢下线提示
+if (isset($_GET['kicked']) && $_GET['kicked'] === '1') {
+    $notice = '您的账号已在另一台设备登录，当前会话已失效。';
+}
+
 // 处理管理员生成的重置密码链接
 $resetToken = trim($_GET['reset_token'] ?? '');
 $tokenValid = false;

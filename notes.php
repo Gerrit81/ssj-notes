@@ -49,7 +49,7 @@ require_once __DIR__ . '/header.php';
 ?>
     <meta name="csrf-token" content="<?= $csrf_token ?>">
     <meta name="session-timeout" content="<?= $sessionTimeoutMinutes ?>">
-    <link rel="stylesheet" href="assets/css/notes.css?v=1.20.3">
+    <link rel="stylesheet" href="assets/css/notes.css?v=1.27.0">
 
 </head>
 <body class="skin-<?= $currentSkin ?>" data-skin="<?= $currentSkin ?>" data-font-family="<?= $currentFontFamily ?>" data-font-size="<?= $currentFontSize ?>" data-auto-save-interval="<?= $currentAutoSaveInterval ?>" data-password-min-length="<?= getPasswordMinLength() ?>" data-keep-login="<?= empty($_SESSION['keep_login']) ? 0 : 1 ?>">
@@ -123,6 +123,32 @@ require_once __DIR__ . '/header.php';
     </div>
 </div>
 
+<!-- 附件管理面板 -->
+<div class="trash-overlay" id="attachOverlay">
+    <div class="trash-panel">
+        <div class="trash-header">
+            <h3>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#722ed1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                附件管理
+            </h3>
+            <div class="trash-actions">
+                <button class="btn-trash" onclick="closeAttachPanel()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+        </div>
+        <div class="trash-body" id="attachBody">
+            <div style="text-align:center;padding:40px 20px;color:#999;">加载中...</div>
+        </div>
+        <!-- 图片尺寸弹出层 -->
+        <div class="attach-size-popup" id="attachSizePopup">
+            <button class="attach-size-opt" data-size="l">大</button>
+            <button class="attach-size-opt" data-size="m">中</button>
+            <button class="attach-size-opt" data-size="s">小</button>
+        </div>
+    </div>
+</div>
+
 <div class="app-container">
     <?php if ($adminResetWarning): ?>
     <!-- 管理员重置密码通知 -->
@@ -156,6 +182,10 @@ require_once __DIR__ . '/header.php';
         <div class="sidebar-footer">
             <div class="logout-countdown" id="logoutCountdown"></div>
             <div class="footer-actions">
+                <button class="btn-logout" onclick="openAttachPanel()" style="border-color:#d9c5f0;color:#722ed1;" title="管理已上传的附件">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                    <span>附件</span>
+                </button>
                 <button class="btn-logout" onclick="location.href='logout.php'">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                     <span>退出登录</span>
@@ -170,6 +200,9 @@ require_once __DIR__ . '/header.php';
     <!-- 编辑器 -->
     <div class="editor-area" id="editorArea">
         <div class="editor-header" id="editorHeader">
+            <button class="btn-action mobile-back-btn" onclick="showSidebar()" data-tooltip="返回列表">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
             <input type="text" id="editorTitle" class="title-input" placeholder="输入笔记标题..." value="">
             <div class="actions">
                 <!-- 组1：内容编辑 -->
@@ -182,8 +215,15 @@ require_once __DIR__ . '/header.php';
                 <button class="btn-action" id="separatorBtn" onclick="insertSeparator()" data-tooltip="插入分隔符 (Ctrl+D)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="8" y1="14" x2="16" y2="14"/></svg>
                 </button>
+                <button class="btn-action" id="insertImageBtn" onclick="openImageModal()" data-tooltip="插入图片">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                </button>
                 <span class="btn-action divider"></span>
                 <!-- 组2：笔记操作 -->
+                <button class="btn-action preview-toggle-btn" id="previewToggleBtn" onclick="togglePreview()" data-tooltip="编辑/预览切换">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="previewIconEdit"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="previewIconView" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
                 <button class="btn-action save-btn" onclick="saveNote()" data-tooltip="保存 (Ctrl+S)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                 </button>
@@ -329,9 +369,22 @@ require_once __DIR__ . '/header.php';
                 </div>
             </div>
         </div>
+        <div class="md-toolbar" id="mdToolbar" style="display:none;">
+            <button class="md-btn" onclick="insertMd('**', '**')" title="加粗 (Ctrl+B)"><b>B</b></button>
+            <button class="md-btn" onclick="insertMd('*', '*')" title="斜体 (Ctrl+I)"><i>I</i></button>
+            <button class="md-btn" onclick="insertMd('# ', '')" title="标题1">H1</button>
+            <button class="md-btn" onclick="insertMd('## ', '')" title="标题2">H2</button>
+            <button class="md-btn" onclick="insertMd('### ', '')" title="标题3">H3</button>
+            <button class="md-btn" onclick="insertMd('`', '`')" title="行内代码">&lt;/&gt;</button>
+            <button class="md-btn" onclick="insertMd('\n> ', '')" title="引用">❝</button>
+            <button class="md-btn" onclick="insertMd('\n- ', '')" title="无序列表">•</button>
+            <button class="md-btn" onclick="insertMd('\n1. ', '')" title="有序列表">1.</button>
+            <button class="md-btn" onclick="insertMd('---\n', '')" title="分隔线">—</button>
+        </div>
         <div class="editor-body">
             <div class="line-numbers" id="lineNumbers"></div>
             <textarea id="editorContent" placeholder="在这里输入内容...&#10;&#10;提示：点击左侧 + 新建笔记，选择笔记开始编辑"></textarea>
+            <div class="preview-content rendered-content" id="previewContent" style="display:none;"></div>
         </div>
         <div class="status-bar" id="statusBar">
             <span class="word-count">字符数：<strong id="charCount">0</strong> &nbsp; 不计空格：<strong id="charCountNoSpace">0</strong></span>
@@ -341,7 +394,56 @@ require_once __DIR__ . '/header.php';
 </div>
 </div>
 
-<script src="assets/js/notes.js?v=1.20.3"></script>
+<!-- 插入图片弹窗 -->
+<div class="modal-overlay" id="imageModal" style="display:none;">
+    <div class="modal-box">
+        <div class="modal-header">📷 插入图片</div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>图片 URL（外部链接）</label>
+                <input type="text" id="imgUrl" placeholder="https://example.com/image.jpg" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label>图片描述（可选）</label>
+                <input type="text" id="imgAlt" placeholder="图片描述文字" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label>显示尺寸</label>
+                <div class="img-size-selector" id="imgSizeSelector">
+                    <label class="img-size-opt" data-size="l"><input type="radio" name="imgSize" value="l" checked><span>大</span></label>
+                    <label class="img-size-opt" data-size="m"><input type="radio" name="imgSize" value="m"><span>中</span></label>
+                    <label class="img-size-opt" data-size="s"><input type="radio" name="imgSize" value="s"><span>小</span></label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>上传文件</label>
+                <div class="file-input-row">
+                    <input type="file" id="imgFile" accept="image/*,.pdf" style="display:none;">
+                    <label for="imgFile" class="file-btn" id="fileBtn">选择文件</label>
+                    <span class="file-name" id="fileName">未选择文件</span>
+                    <span class="file-hint">图片 / PDF，最多10MB</span>
+                </div>
+                <div class="upload-progress" id="uploadProgress" style="display:none;">
+                    <div class="progress-bar"><div class="progress-fill" id="uploadProgressFill"></div></div>
+                </div>
+            </div>
+            <img class="modal-preview-img" id="imgPreview" style="display:none;" alt="预览">
+        </div>
+        <div class="modal-footer">
+            <button class="btn" onclick="closeImageModal()">取消</button>
+            <button class="btn btn-primary" onclick="insertImageMd()">插入图片</button>
+        </div>
+    </div>
+</div>
+
+<!-- 灯箱（图片/PDF） -->
+<div class="lightbox" id="lightbox" style="display:none;" onclick="closeLightbox()">
+    <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
+    <img id="lightboxImg" src="" alt="图片预览">
+    <iframe id="lightboxPdf" src="" style="display:none;" frameborder="0"></iframe>
+</div>
+
+<script src="assets/js/notes.js?v=1.27.0"></script>
 
 </body>
 </html>

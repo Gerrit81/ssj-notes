@@ -15,7 +15,7 @@
 require_once __DIR__ . '/init.php';
 
 $keep = 30; // 默认保留最近 30 个备份
-$backupDir = __DIR__ . '/data/backups';
+$backupDir = $config['data_dir'] . '/backups';
 
 // 解析命令行参数
 $args = getopt('', ['keep::', 'path::']);

@@ -12,6 +12,7 @@
     let isDirty = false;
     let searchTimer = null;
     let currentPinState = false;
+    let isPreviewMode = true;
 
     // 字体映射
     const fontMap = {
@@ -625,9 +626,21 @@
         document.getElementById('editorContent').value = '';
         updateWordCount();
         updateLineNumbers();
+        switchToEditMode();
         document.getElementById('editorContent').focus();
         document.querySelectorAll('.note-item').forEach(el => el.classList.remove('active'));
+        // 移动端：切换到编辑器视图
+        if (window.innerWidth <= 767) {
+            document.querySelector('.app-body').classList.add('editor-active');
+        }
     }
+
+    // 移动端：返回侧边栏
+    window.showSidebar = function () {
+        // 自动保存后再切换
+        if (isDirty && currentNoteId) saveNote(true);
+        document.querySelector('.app-body').classList.remove('editor-active');
+    };
 
     // 打开笔记
     async function openNote(id) {
@@ -646,6 +659,11 @@
             document.getElementById('editorContent').value = data.content || '';
             updateWordCount();
             updateLineNumbers();
+            switchToPreviewMode();
+            // 移动端：切换到编辑器视图
+            if (window.innerWidth <= 767) {
+                document.querySelector('.app-body').classList.add('editor-active');
+            }
             document.querySelectorAll('.note-item').forEach(el => el.classList.remove('active'));
             const items = document.querySelectorAll('.note-item');
             items.forEach(el => {
@@ -714,6 +732,31 @@
             insertSeparator();
             return;
         }
+        // Ctrl+B：加粗
+        if ((e.ctrlKey || e.metaKey) && e.key === 'b' && !isPreviewMode) {
+            e.preventDefault();
+            insertMd('**', '**');
+            return;
+        }
+        // Ctrl+I：斜体
+        if ((e.ctrlKey || e.metaKey) && e.key === 'i' && !isPreviewMode) {
+            e.preventDefault();
+            insertMd('*', '*');
+            return;
+        }
+        // Esc：关闭弹窗/灯箱
+        if (e.key === 'Escape') {
+            var lb = document.getElementById('lightbox');
+            var im = document.getElementById('imageModal');
+            if (lb && lb.style.display === 'flex') {
+                closeLightbox();
+                return;
+            }
+            if (im && im.style.display === 'flex') {
+                closeImageModal();
+                return;
+            }
+        }
     });
 
     // 确认删除对话框
@@ -768,6 +811,177 @@
     document.getElementById('trashOverlay').addEventListener('click', function(e) {
         if (e.target === this) closeTrash();
     });
+
+    // ===== 附件管理 =====
+    var attachmentFiles = []; // 缓存附件列表
+
+    async function openAttachPanel() {
+        document.getElementById('attachOverlay').classList.add('show');
+        await loadAttachments();
+    }
+
+    function closeAttachPanel() {
+        document.getElementById('attachOverlay').classList.remove('show');
+    }
+
+    document.getElementById('attachOverlay').addEventListener('click', function(e) {
+        if (e.target === this) closeAttachPanel();
+    });
+
+    async function loadAttachments() {
+        var body = document.getElementById('attachBody');
+        body.innerHTML = '<div style="text-align:center;padding:40px 20px;color:#999;">加载中...</div>';
+        try {
+            var res = await apiFetch('api.php?action=listImages');
+            var data = await res.json();
+            attachmentFiles = data.files || [];
+            renderAttachments();
+        } catch (e) {
+            body.innerHTML = '<div style="text-align:center;padding:40px 20px;color:#ff4d4f;">加载失败：' + escapeHtml(e.message) + '</div>';
+        }
+    }
+
+    function renderAttachments() {
+        var body = document.getElementById('attachBody');
+        if (attachmentFiles.length === 0) {
+            body.innerHTML = '<div style="text-align:center;padding:40px 20px;color:#999;">' +
+                '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>' +
+                '<p style="margin-top:12px;">还没有上传过文件</p></div>';
+            return;
+        }
+        var html = '';
+        attachmentFiles.forEach(function(file, i) {
+            var isPdf = /\.pdf$/i.test(file.filename);
+            var thumbHtml = '';
+            if (isPdf) {
+                // PDF 缩略图占位
+                thumbHtml = '<div class="attach-thumb attach-pdf-thumb">' +
+                    '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' +
+                    '<span style="font-size:10px;">PDF</span></div>';
+            } else {
+                thumbHtml = '<img class="attach-thumb" src="' + escapeAttr(file.path) + '" alt="" loading="lazy" onclick="event.stopPropagation();openLightbox(\'' + escapeAttr(file.path) + '\', \'image\')">';
+            }
+            var refHtml = file.referenced
+                ? '<span style="color:#52c41a;">已引用</span>'
+                : '<span style="color:#fa8c16;">未引用</span>';
+            var alt = isPdf ? file.filename.replace(/\.pdf$/i, '') : (file.filename.replace(/\.[^.]+$/, '') || '图片');
+            html += '<div class="attach-item">' +
+                '<div class="attach-preview">' + thumbHtml + '</div>' +
+                '<div class="attach-info">' +
+                '<div class="attach-name" title="' + escapeAttr(file.filename) + '">' + escapeHtml(file.filename) + '</div>' +
+                '<div class="attach-meta">' + file.sizeStr + ' &middot; ' + file.time + ' &middot; ' + refHtml + '</div>' +
+                '</div>' +
+                '<div class="attach-actions" style="display:flex;gap:6px;">' +
+                (isPdf
+                    ? '<button class="btn-sm attach-insert-btn" onclick="insertAttachmentToEditor(' + i + ')" title="插入 PDF 到文章">' +
+                    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+                    '</button>'
+                    : '<button class="btn-sm attach-insert-btn" onclick="showAttachSizePopup(event,' + i + ')" title="插入图片到文章（可选择尺寸）">' +
+                    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+                    '</button>') +
+                '<button class="btn-sm attach-del-btn" onclick="deleteAttachment(' + i + ')" title="删除文件">' +
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' +
+                '</button>' +
+                '</div>' +
+                '</div>';
+        });
+        body.innerHTML = html;
+    }
+
+    // 将附件插入到当前编辑的文章
+    // size: 'l'(大/默认), 'm'(中), 's'(小) — 仅对图片生效
+    function insertAttachmentToEditor(i, size) {
+        size = size || 'l';
+        var file = attachmentFiles[i];
+        if (!file) return;
+        var isPdf = /\.pdf$/i.test(file.filename);
+        var alt = isPdf
+            ? file.filename.replace(/\.pdf$/i, '')
+            : file.filename.replace(/\.[^.]+$/, '') || '图片';
+        var sizeSuffix = (!isPdf && size !== 'l') ? ('{' + size + '}') : '';
+        var md = '![' + alt + '](' + file.path + ')' + sizeSuffix;
+        var ta = document.getElementById('editorContent');
+        if (!ta) { showToast('请先选择一篇笔记进入编辑模式', true); return; }
+        var start = ta.selectionStart;
+        var prefix = (start > 0 && ta.value.charAt(start - 1) !== '\n') ? '\n\n' : '';
+        ta.value = ta.value.substring(0, start) + prefix + md + '\n' + ta.value.substring(start);
+        ta.focus();
+        ta.selectionStart = ta.selectionEnd = start + prefix.length + md.length + 1;
+        ta.dispatchEvent(new Event('input'));
+        // 关闭面板
+        closeAttachPanel();
+        var sizeLabel = {l:'大', m:'中', s:'小'}[size] || '';
+        showToast('已插入' + (isPdf ? ' PDF' : ('图片(' + sizeLabel + ')')));
+    }
+
+    // 附件面板中点击插入按钮时，对图片显示尺寸选择弹出层
+    var attachPendingIndex = -1;
+
+    function showAttachSizePopup(event, i) {
+        event.stopPropagation();
+        var btn = event.currentTarget;
+        var popup = document.getElementById('attachSizePopup');
+        attachPendingIndex = i;
+
+        // 定位弹出层到按钮上方
+        var rect = btn.getBoundingClientRect();
+        var panelRect = document.getElementById('attachOverlay').getBoundingClientRect();
+        popup.style.left = (rect.left - panelRect.left + rect.width / 2 - 80) + 'px';
+        popup.style.top = (rect.top - panelRect.top - 46) + 'px';
+        popup.classList.add('show');
+
+        // 高亮当前默认尺寸
+        popup.querySelectorAll('.attach-size-opt').forEach(function(opt) {
+            opt.classList.toggle('attach-size-active', opt.dataset.size === 'l');
+        });
+    }
+
+    function hideAttachSizePopup() {
+        document.getElementById('attachSizePopup').classList.remove('show');
+        attachPendingIndex = -1;
+    }
+
+    // 弹出层按钮点击 → 执行插入
+    document.getElementById('attachSizePopup').addEventListener('click', function(e) {
+        var opt = e.target.closest('.attach-size-opt');
+        if (!opt || attachPendingIndex < 0) return;
+        e.stopPropagation();
+        insertAttachmentToEditor(attachPendingIndex, opt.dataset.size);
+        hideAttachSizePopup();
+    });
+
+    // 点击弹出层外的任意位置关闭
+    document.addEventListener('click', function(e) {
+        var popup = document.getElementById('attachSizePopup');
+        if (popup.classList.contains('show') && !popup.contains(e.target) && !e.target.closest('.attach-insert-btn')) {
+            hideAttachSizePopup();
+        }
+    });
+
+    async function deleteAttachment(i) {
+        var file = attachmentFiles[i];
+        if (!file) return;
+        var warn = file.referenced ? '\n\n注意：该文件仍在笔记中被引用！' : '';
+        if (!confirm('确定删除「' + file.filename + '」吗？此操作不可恢复。' + warn)) return;
+        try {
+            var formData = new FormData();
+            formData.append('action', 'deleteImage');
+            formData.append('path', file.path);
+            formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
+            var res = await fetch('api.php', { method: 'POST', body: formData });
+            var data = await res.json();
+            if (data.error) {
+                showToast(data.error, true);
+                return;
+            }
+            showToast('已删除');
+            // 从列表中移除
+            attachmentFiles.splice(i, 1);
+            renderAttachments();
+        } catch (e) {
+            showToast('删除失败：' + e.message, true);
+        }
+    }
 
     async function loadTrash() {
         try {
@@ -921,7 +1135,7 @@
     function insertSeparator() {
         const ta = document.getElementById('editorContent');
         if (!ta) return;
-        const sep = '\u2500'.repeat(36) + '\n';
+        const sep = '---\n';
         const start = ta.selectionStart;
         const end = ta.selectionEnd;
         ta.value = ta.value.substring(0, start) + sep + ta.value.substring(end);
@@ -1109,3 +1323,366 @@
             }
         }
     });
+
+    // ===== Markdown 编辑/预览模式 =====
+
+    function togglePreview() {
+        if (isPreviewMode) {
+            switchToEditMode();
+        } else {
+            switchToPreviewMode();
+        }
+    }
+
+    function switchToEditMode() {
+        isPreviewMode = false;
+        document.getElementById('editorContent').style.display = '';
+        document.getElementById('previewContent').style.display = 'none';
+        document.getElementById('lineNumbers').style.display = '';
+        document.getElementById('mdToolbar').style.display = '';
+        document.getElementById('insertImageBtn').style.display = '';
+        document.getElementById('previewIconEdit').style.display = '';
+        document.getElementById('previewIconView').style.display = 'none';
+        document.getElementById('previewToggleBtn').setAttribute('data-tooltip', '切换预览');
+        document.getElementById('editorContent').focus();
+        updateLineNumbers();
+    }
+
+    function switchToPreviewMode() {
+        isPreviewMode = true;
+        if (isDirty) saveNote(true);
+        renderMarkdown();
+        document.getElementById('editorContent').style.display = 'none';
+        document.getElementById('previewContent').style.display = '';
+        document.getElementById('lineNumbers').style.display = 'none';
+        document.getElementById('mdToolbar').style.display = 'none';
+        document.getElementById('insertImageBtn').style.display = 'none';
+        document.getElementById('previewIconEdit').style.display = 'none';
+        document.getElementById('previewIconView').style.display = '';
+        document.getElementById('previewToggleBtn').setAttribute('data-tooltip', '切换编辑');
+    }
+
+    function renderMarkdown() {
+        var container = document.getElementById('previewContent');
+        var text = document.getElementById('editorContent').value;
+
+        if (!text.trim()) {
+            container.innerHTML = '<div class="preview-empty">暂无内容，点击 ✏ 编辑 开始写作</div>';
+            return;
+        }
+
+        var html = text;
+        html = escapeMd(html);
+
+        // 代码块
+        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
+            return '<pre><code>' + code.trim() + '</code></pre>';
+        });
+
+        // 图片/PDF ![alt](url){s|m|l} → 块级展示，{s}=小 {m}=中 默认=大
+        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)(\{([sml])\})?/g, function(m, alt, url, sizeToken, size) {
+            var a = escapeAttr(alt || '');
+            var u = escapeAttr(url);
+            var sizeClass = '';
+            if (size === 's') sizeClass = ' md-img-s';
+            else if (size === 'm') sizeClass = ' md-img-m';
+            // 'l' or no token = full width (default)
+            var isPdf = /\.pdf(\?.*)?$/i.test(u);
+            if (isPdf) {
+                // PDF 渲染为图标块（尺寸对 PDF 不生效）
+                var pdfName = a || decodeURIComponent((u.split('/').pop() || 'PDF文档').replace(/\?.*$/, ''));
+                return '<div class="md-image-block md-pdf-block" data-pdf-url="' + u + '" data-file-type="pdf">' +
+                    '<div class="md-pdf-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>' +
+                    '<div class="md-pdf-name">' + escapeHtml(pdfName) + '</div>' +
+                    '<div class="md-pdf-hint">点击预览 PDF</div>' +
+                    '</div>';
+            }
+            // 图片
+            return '<div class="md-image-block' + sizeClass + '">' +
+                '<img src="' + u + '" alt="' + (a || '图片') + '" loading="lazy" onclick="event.stopPropagation();openLightbox(\'' + u + '\', \'image\')">' +
+                (a ? '<div class="md-image-caption">' + escapeHtml(a) + '</div>' : '') +
+                '</div>';
+        });
+
+        // 标题
+        html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+        html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+        html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+        // 引用
+        html = html.replace(/^&gt;\s?(.+)$/gm, '<blockquote>$1</blockquote>');
+
+        // 分隔线
+        html = html.replace(/^(-{3,}|\*{3,})$/gm, '<hr>');
+
+        // 无序列表
+        html = html.replace(/^[\-\*]\s+(.+)$/gm, '<li>$1</li>');
+        html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, function(m) {
+            if (m.indexOf('<li>') !== -1) return '<ul>' + m + '</ul>';
+            return m;
+        });
+
+        // 有序列表
+        html = html.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
+
+        // 加粗 **text**
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+        // 斜体 *text*
+        html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+
+        // 行内代码 `code`
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+        // 链接 [text](url)
+        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+        // 段落
+        html = html.replace(/\n\n+/g, '</p><p>');
+        html = '<p>' + html + '</p>';
+
+        // 修复嵌套
+        html = html.replace(/<p><(h[1-3]|ul|ol|blockquote|pre|hr|div)/g, '<$1');
+        html = html.replace(/<\/(h[1-3]|ul|ol|blockquote|pre|div)>(\n?)<\/p>/g, '</$1>');
+        html = html.replace(/<hr>(\n?)<\/p>/g, '<hr>');
+        html = html.replace(/<p>\s*<\/p>/g, '');
+        html = html.replace(/\n/g, '<br>');
+
+        container.innerHTML = html;
+    }
+
+    // Markdown 快捷插入
+    function insertMd(before, after) {
+        var ta = document.getElementById('editorContent');
+        var start = ta.selectionStart;
+        var end = ta.selectionEnd;
+        var sel = ta.value.substring(start, end);
+        ta.value = ta.value.substring(0, start) + before + sel + after + ta.value.substring(end);
+        ta.focus();
+        var offset = before.indexOf('\n') === 0 ? 1 : 0;
+        ta.selectionStart = ta.selectionEnd = start + before.length + sel.length - offset;
+        ta.dispatchEvent(new Event('input'));
+    }
+
+    // ===== 图片插入弹窗 =====
+
+    var localImagePreviewUrl = '';
+
+    function openImageModal() {
+        document.getElementById('imageModal').style.display = 'flex';
+        document.getElementById('imgUrl').value = '';
+        document.getElementById('imgAlt').value = '';
+        document.getElementById('imgFile').value = '';
+        document.getElementById('imgPreview').style.display = 'none';
+        document.getElementById('fileName').textContent = '未选择文件';
+        document.getElementById('fileName').classList.remove('has-file');
+        localImagePreviewUrl = '';
+        document.getElementById('imgUrl').focus();
+    }
+
+    function closeImageModal() {
+        document.getElementById('imageModal').style.display = 'none';
+    }
+
+    document.getElementById('imgUrl').addEventListener('input', function() {
+        var url = this.value.trim();
+        var img = document.getElementById('imgPreview');
+        if (url) {
+            img.src = url;
+            img.style.display = 'block';
+        } else {
+            img.style.display = 'none';
+        }
+    });
+
+    document.getElementById('imgFile').addEventListener('change', function() {
+        var file = this.files[0];
+        var nameEl = document.getElementById('fileName');
+        if (!file) {
+            nameEl.textContent = '未选择文件';
+            nameEl.classList.remove('has-file');
+            return;
+        }
+        nameEl.textContent = file.name;
+        nameEl.classList.add('has-file');
+        // 先判断文件类型
+        var isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        localImagePreviewUrl = ''; // 先清除，PDF 无法预览
+        var img = document.getElementById('imgPreview');
+        if (isPdf) {
+            // PDF：显示占位提示
+            img.style.display = 'none';
+        } else {
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                localImagePreviewUrl = e.target.result;
+                img.src = localImagePreviewUrl;
+                img.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        }
+        // 自动上传到服务器
+        uploadImageFile(file);
+    });
+
+    function insertImageMd() {
+        var urlInput = document.getElementById('imgUrl');
+        var url = urlInput.value.trim();
+        // 禁止将 base64 写入文章（会导致数据库膨胀），必须等上传成功或手动输入 URL
+        if (!url && localImagePreviewUrl) {
+            showToast('图片正在上传中，请稍候再点插入', true);
+            return;
+        }
+        if (!url && !localImagePreviewUrl) {
+            showToast('请先输入图片 URL 或选择本地文件上传', true);
+            return;
+        }
+        if (!url) {
+            showToast('文件上传中，请等待上传完成后再插入', true);
+            return;
+        }
+        var isPdf = /\.pdf(\?.*)?$/i.test(url);
+        var alt = document.getElementById('imgAlt').value.trim() || (isPdf ? 'PDF文档' : '图片');
+        // 读取尺寸选择
+        var sizeRadio = document.querySelector('input[name="imgSize"]:checked');
+        var sizeSuffix = '';
+        if (!isPdf && sizeRadio && sizeRadio.value !== 'l') {
+            sizeSuffix = '{' + sizeRadio.value + '}';
+        }
+        var md = '![' + alt + '](' + url + ')' + sizeSuffix;
+        var ta = document.getElementById('editorContent');
+        var start = ta.selectionStart;
+        var prefix = (start > 0 && ta.value.charAt(start - 1) !== '\n') ? '\n\n' : '';
+        ta.value = ta.value.substring(0, start) + prefix + md + '\n' + ta.value.substring(start);
+        ta.focus();
+        ta.selectionStart = ta.selectionEnd = start + prefix.length + md.length + 1;
+        ta.dispatchEvent(new Event('input'));
+        closeImageModal();
+        updateLineNumbers();
+    }
+
+    // 上传图片到服务器
+    async function uploadImageFile(file) {
+        var progress = document.getElementById('uploadProgress');
+        var progressFill = document.getElementById('uploadProgressFill');
+        var urlInput = document.getElementById('imgUrl');
+
+        progress.style.display = 'block';
+        progressFill.style.width = '20%';
+
+        var formData = new FormData();
+        formData.append('image', file);
+        formData.append('action', 'uploadImage');
+        formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
+
+        try {
+            var res = await fetch('api.php', {
+                method: 'POST',
+                body: formData,
+            });
+            progressFill.style.width = '80%';
+            var data = await res.json();
+            if (data.error) {
+                showToast(data.error, true);
+                progress.style.display = 'none';
+                progressFill.style.width = '0';
+                // 上传失败后清除本地预览，防止用户误将 base64 插入文章
+                localImagePreviewUrl = '';
+                return;
+            }
+            progressFill.style.width = '100%';
+            // 填入返回的 URL
+            urlInput.value = data.url;
+            if (data.type === 'pdf') {
+                // PDF 上传成功，显示图标提示
+                document.getElementById('imgPreview').style.display = 'none';
+                showToast('PDF 上传成功');
+            } else {
+                document.getElementById('imgPreview').src = data.url;
+                document.getElementById('imgPreview').style.display = 'block';
+                showToast('上传成功');
+            }
+            // 延迟隐藏进度条
+            setTimeout(function() {
+                progress.style.display = 'none';
+                progressFill.style.width = '0';
+            }, 800);
+        } catch (e) {
+            progress.style.display = 'none';
+            progressFill.style.width = '0';
+            // 上传失败后清除本地预览，防止用户误将 base64 插入文章
+            localImagePreviewUrl = '';
+            showToast('上传失败：' + e.message, true);
+        }
+    }
+
+    // Esc 关闭弹窗和灯箱 - 已合并到上方键盘快捷键处理
+    // （空 - 保留占位）
+
+    // 弹窗遮罩点击关闭
+    (function() {
+        var modal = document.getElementById('imageModal');
+        if (modal) {
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) closeImageModal();
+            });
+        }
+    })();
+
+    // ===== 灯箱（图片 / PDF） =====
+
+    function openLightbox(url, fileType) {
+        fileType = fileType || 'image';
+        var img = document.getElementById('lightboxImg');
+        var pdf = document.getElementById('lightboxPdf');
+        var lb = document.getElementById('lightbox');
+        if (fileType === 'pdf') {
+            img.style.display = 'none';
+            pdf.src = url;
+            pdf.style.display = 'block';
+        } else {
+            pdf.style.display = 'none';
+            pdf.src = '';
+            img.src = url;
+            img.style.display = 'block';
+        }
+        lb.style.display = 'flex';
+    }
+
+    function closeLightbox() {
+        document.getElementById('lightbox').style.display = 'none';
+        document.getElementById('lightboxImg').src = '';
+        document.getElementById('lightboxPdf').src = '';
+    }
+
+    // ===== 预览区点击图片/PDF 弹窗 =====
+    document.getElementById('previewContent').addEventListener('click', function(e) {
+        // 图片
+        var img = e.target.closest('.md-image-block img');
+        if (img && img.src) {
+            openLightbox(img.src, 'image');
+            return;
+        }
+        // PDF
+        var pdfBlock = e.target.closest('.md-pdf-block');
+        if (pdfBlock) {
+            var pdfUrl = pdfBlock.getAttribute('data-pdf-url');
+            if (pdfUrl) {
+                openLightbox(pdfUrl, 'pdf');
+            }
+        }
+    });
+
+    // ===== HTML 转义 =====
+
+    function escapeMd(str) {
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function escapeHtml(str) {
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function escapeAttr(str) {
+        return (str || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }

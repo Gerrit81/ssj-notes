@@ -6,18 +6,38 @@
 
 require_once __DIR__ . '/config.php';
 
+// --- 路径规范化 ---
+// 数据目录：未配置则默认程序目录下的 data/
+if (empty($config['data_dir'])) {
+    $config['data_dir'] = __DIR__ . '/data';
+}
+// 数据库路径：未单独指定则使用 data_dir/notes.db
+if (empty($config['db_path'])) {
+    $config['db_path'] = $config['data_dir'] . '/notes.db';
+}
+
 // --- 目录初始化 ---
-$data_dir = __DIR__ . '/data';
+$data_dir = $config['data_dir'];
 if (!is_dir($data_dir)) {
-    mkdir($data_dir, 0755, true);
+    if (!@mkdir($data_dir, 0755, true)) {
+        $err = error_get_last();
+        http_response_code(500);
+        header('Content-Type: text/plain; charset=utf-8');
+        die("初始化失败：无法创建数据目录\n路径：{$data_dir}\n原因：" . ($err['message'] ?? '权限不足或父级目录不可写') . "\n\n请手动创建该目录并确保 PHP 进程有写入权限：\n  mkdir -p {$data_dir}\n  chmod 755 {$data_dir}\n  chown www:www {$data_dir}");
+    }
 }
 
 // --- 会话启动 ---
 if (session_status() === PHP_SESSION_NONE) {
     // 使用项目内独立会话目录，避免其他应用的 GC 策略干扰
-    $sessionDir = __DIR__ . '/data/sessions';
+    $sessionDir = $config['data_dir'] . '/sessions';
     if (!is_dir($sessionDir)) {
-        mkdir($sessionDir, 0700, true);
+        if (!@mkdir($sessionDir, 0700, true)) {
+            $err = error_get_last();
+            http_response_code(500);
+            header('Content-Type: text/plain; charset=utf-8');
+            die("初始化失败：无法创建会话目录\n路径：{$sessionDir}\n原因：" . ($err['message'] ?? '权限不足') . "\n\n请确认 PHP 进程对 {$data_dir} 有写入权限。");
+        }
     }
     // 建 .htaccess 禁止直接访问会话文件
     $ht = $sessionDir . '/.htaccess';
@@ -76,6 +96,30 @@ if (isLoggedIn()) {
         // 保持登录用户仍更新 last_activity，用于管理员后台查看在线状态
         $_SESSION['last_activity'] = time();
     }
+
+    // --- 单客户端登录：检测 session_token 是否被新登录覆盖 ---
+    $singleClient = (int)getSetting('single_client_login', '0');
+    if ($singleClient && !empty($_SESSION['session_token'])) {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT session_token FROM users WHERE id = :id");
+        $stmt->execute([':id' => $_SESSION['user_id']]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $stmt->closeCursor();
+        if (!$row || $row['session_token'] !== $_SESSION['session_token']) {
+            appLog("用户 " . currentUsername() . " 因在其他客户端登录被强制登出");
+            logoutUser();
+            $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
+                || (defined('API_REQUEST') && API_REQUEST);
+            if ($isAjax) {
+                http_response_code(401);
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['error' => '您的账号已在另一台设备登录，当前会话已失效', 'code' => 'kicked']);
+                exit;
+            }
+            header('Location: index.php?kicked=1');
+            exit;
+        }
+    }
 }
 
 // --- 数据库初始化 ---
@@ -125,6 +169,9 @@ function initDatabase(): void {
     } catch (Exception $e) {}
     try {
         $db->exec("ALTER TABLE users ADD COLUMN last_reset_acknowledged_at DATETIME DEFAULT NULL");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE users ADD COLUMN session_token TEXT DEFAULT NULL");
     } catch (Exception $e) {}
 
     // 笔记表
@@ -239,7 +286,17 @@ function initDatabase(): void {
 }
 
 // 自动初始化
-initDatabase();
+try {
+    initDatabase();
+} catch (\PDOException $e) {
+    http_response_code(500);
+    header('Content-Type: text/plain; charset=utf-8');
+    $msg = "数据库初始化失败\n路径：{$config['db_path']}\n错误：" . $e->getMessage();
+    if (strpos($e->getMessage(), 'unable to open database') !== false) {
+        $msg .= "\n\n→ 数据库文件所在目录可能不存在或不可写。请确认：\n   mkdir -p {$config['data_dir']}\n   chmod 755 {$config['data_dir']}";
+    }
+    die($msg);
+}
 
 // --- 公共函数 ---
 
@@ -280,6 +337,16 @@ function loginUser(array $user): void {
     // 记住登录（跳过不活动超时检测）
     if (!empty($_POST['keep_login'])) {
         $_SESSION['keep_login'] = true;
+    }
+    // 单客户端登录：生成新 token，让旧的客户端失效
+    $singleClient = (int)getSetting('single_client_login', '0');
+    if ($singleClient) {
+        $token = bin2hex(random_bytes(16));
+        $_SESSION['session_token'] = $token;
+        $db = getDB();
+        $stmt = $db->prepare("UPDATE users SET session_token = :token WHERE id = :id");
+        $stmt->execute([':token' => $token, ':id' => $user['id']]);
+        $stmt->closeCursor();
     }
     session_regenerate_id(true);
 }
@@ -337,7 +404,8 @@ function getVersion(): string {
 
 /** 日志记录 */
 function appLog(string $message): void {
-    $logDir = __DIR__ . '/data';
+    global $config;
+    $logDir = $config['data_dir'];
     $logFile = $logDir . '/app.log';
     $ts = date('Y-m-d H:i:s');
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
@@ -407,7 +475,7 @@ function doBackup(): array {
     if (!file_exists($dbPath)) {
         return ['success' => false, 'file' => '', 'size' => 0, 'message' => '数据库文件不存在'];
     }
-    $backupDir = __DIR__ . '/data/backups';
+    $backupDir = $config['data_dir'] . '/backups';
     if (!is_dir($backupDir)) {
         mkdir($backupDir, 0755, true);
     }
@@ -428,6 +496,157 @@ function doBackup(): array {
         foreach ($toDelete as $file) { @unlink($file); }
     }
     return ['success' => true, 'file' => $backupFile, 'size' => $size, 'message' => '备份成功'];
+}
+
+/**
+ * 获取数据库文件大小
+ * @return string 人类可读的大小字符串
+ */
+function getDBSize(): string {
+    global $config;
+    $dbPath = $config['db_path'];
+    if (!file_exists($dbPath)) {
+        return '0 KB';
+    }
+    $bytes = filesize($dbPath);
+    if ($bytes >= 1024 * 1024) {
+        return round($bytes / 1024 / 1024, 2) . ' MB';
+    }
+    return round($bytes / 1024, 1) . ' KB';
+}
+
+/**
+ * 压缩 SQLite 数据库（VACUUM）
+ * SQLite 在删除数据后不会自动回收磁盘空间，需要执行 VACUUM 重建数据库文件
+ * @return array{success: bool, size_before: int, size_after: int, message: string}
+ */
+function doVacuum(): array {
+    global $config;
+    $dbPath = $config['db_path'];
+    if (!file_exists($dbPath)) {
+        return ['success' => false, 'size_before' => 0, 'size_after' => 0, 'message' => '数据库文件不存在'];
+    }
+    $sizeBefore = filesize($dbPath);
+
+    try {
+        $db = getDB();
+        $db->exec('VACUUM');
+    } catch (Exception $e) {
+        return ['success' => false, 'size_before' => $sizeBefore, 'size_after' => 0, 'message' => '压缩失败：' . $e->getMessage()];
+    }
+
+    $sizeAfter = filesize($dbPath);
+    $saved = $sizeBefore - $sizeAfter;
+    $savedStr = $saved >= 1024 * 1024 ? round($saved / 1024 / 1024, 2) . ' MB' : round($saved / 1024, 1) . ' KB';
+
+    appLog("数据库压缩(VACUUM): " . getDBSize() . " -> 释放 {$savedStr}");
+
+    return [
+        'success' => true,
+        'size_before' => $sizeBefore,
+        'size_after' => $sizeAfter,
+        'message' => "压缩完成，释放 {$savedStr} 空间",
+    ];
+}
+
+/**
+ * 列出所有已上传的图片文件
+ * @return array{files: list<array{path: string, filename: string, userId: int|string, username: string, size: int, sizeStr: string, time: string, referenced: bool, notes: list<string>}>}
+ */
+function listUploadedImages(): array {
+    $uploadDir = __DIR__ . '/data/uploads/';
+    if (!is_dir($uploadDir)) {
+        return ['files' => []];
+    }
+
+    // 收集所有笔记中引用的图片路径
+    $referencedPaths = [];
+    $db = getDB();
+    $stmt = $db->query("SELECT id, content FROM notes WHERE deleted_at IS NULL");
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        preg_match_all('/\bdata\/uploads\/[^\s()\[\]{}"\'<>]+/i', $row['content'], $matches);
+        foreach ($matches[0] as $path) {
+            // 去掉可能的 Markdown 后缀字符
+            $path = rtrim($path, '.,;:!?)');
+            $referencedPaths[$path][] = (int)$row['id'];
+        }
+    }
+
+    // 用户名缓存
+    $usernameMap = [];
+    $userStmt = $db->query("SELECT id, username FROM users");
+    while ($u = $userStmt->fetch(PDO::FETCH_ASSOC)) {
+        $usernameMap[(int)$u['id']] = $u['username'];
+    }
+
+    $files = [];
+    $dirs = glob($uploadDir . '*', GLOB_ONLYDIR);
+    foreach ($dirs as $userDir) {
+        $userId = basename($userDir);
+        if (!is_numeric($userId)) continue;
+        $userId = (int)$userId;
+        $username = $usernameMap[$userId] ?? '未知用户';
+        $images = glob($userDir . '/*.{jpg,jpeg,png,gif,webp,svg,bmp}', GLOB_BRACE);
+        foreach ($images as $imgPath) {
+            $relPath = 'data/uploads/' . $userId . '/' . basename($imgPath);
+            $size = filesize($imgPath);
+            $sizeStr = $size >= 1024 * 1024
+                ? round($size / 1024 / 1024, 2) . ' MB'
+                : round($size / 1024, 1) . ' KB';
+            $files[] = [
+                'path'     => $relPath,
+                'filename' => basename($imgPath),
+                'userId'   => $userId,
+                'username' => $username,
+                'size'     => $size,
+                'sizeStr'  => $sizeStr,
+                'time'     => date('Y-m-d H:i', filemtime($imgPath)),
+                'referenced' => isset($referencedPaths[$relPath]),
+                'notes'    => $referencedPaths[$relPath] ?? [],
+            ];
+        }
+    }
+
+    // 按时间倒序
+    usort($files, function($a, $b) { return $b['time'] <=> $a['time']; });
+    return ['files' => $files];
+}
+
+/**
+ * 获取上传目录总大小
+ */
+function getUploadSize(): string {
+    $uploadDir = __DIR__ . '/data/uploads/';
+    $size = getUploadSizeBytes($uploadDir);
+    if ($size >= 1024 * 1024) {
+        return round($size / 1024 / 1024, 2) . ' MB';
+    }
+    return round($size / 1024, 1) . ' KB';
+}
+
+function getUploadSizeBytes(string $dir): int {
+    $size = 0;
+    if (!is_dir($dir)) return 0;
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS)) as $file) {
+        $size += $file->getSize();
+    }
+    return $size;
+}
+
+/**
+ * 获取上传图片数量统计
+ */
+function getUploadStats(): array {
+    $result = listUploadedImages();
+    $total = count($result['files']);
+    $referenced = count(array_filter($result['files'], function($f) { return $f['referenced']; }));
+    $orphaned = $total - $referenced;
+    return [
+        'total' => $total,
+        'referenced' => $referenced,
+        'orphaned' => $orphaned,
+        'size' => getUploadSize(),
+    ];
 }
 
 // --- 部署模式 ---
@@ -547,7 +766,8 @@ function deleteInviteCode(int $id): bool {
 
 /** 获取备份信息 */
 function getBackupInfo(): array {
-    $backupDir = __DIR__ . '/data/backups';
+    global $config;
+    $backupDir = $config['data_dir'] . '/backups';
     $files = [];
     if (is_dir($backupDir)) {
         $glob = glob($backupDir . '/notes_*.db');

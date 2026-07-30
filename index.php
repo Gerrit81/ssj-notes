@@ -8,7 +8,7 @@ require_once __DIR__ . '/auth.php';
 $pageTitleSuffix = '登录';
 require_once __DIR__ . '/header.php';
 ?>
-    <link rel="stylesheet" href="assets/css/login.css?v=1.20.3">
+    <link rel="stylesheet" href="assets/css/login.css?v=1.27.0">
 
 </head>
 <body>
@@ -40,7 +40,7 @@ require_once __DIR__ . '/header.php';
                 <div class="form-group"><label for="password">密码</label><input type="password" id="password" name="password" autocomplete="current-password" required></div>
                 <div class="form-group" style="display:flex;align-items:center;gap:8px;font-size:13px;color:#8b8ba0;">
                     <input type="checkbox" id="keep_login" name="keep_login" value="1" style="width:auto;margin:0;accent-color:#667eea;">
-                    <label for="keep_login" style="margin:0;cursor:pointer;">保持登录（跳过不活动超时，仅手动登出时退出）</label>
+                    <label for="keep_login" style="margin:0;cursor:pointer;">保持登录（注意安全，及时退出）</label>
                 </div>
                 <button type="submit" class="btn">登 录</button>
             </form>
