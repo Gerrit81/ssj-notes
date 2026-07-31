@@ -1922,18 +1922,41 @@
         body.skin-dark-warm .file-btn:hover { background: #e8c170; color: #1e1a14; }
 
         /* ========== 灯箱（图片/PDF） ========== */
+        /* ========== 灯箱 ========== */
         .lightbox {
-            display: none; position: fixed; inset: 0;
+            display: flex; position: fixed; inset: 0;
             background: rgba(0,0,0,.88); z-index: 20000;
             align-items: center; justify-content: center; cursor: pointer;
+            visibility: hidden; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .lightbox.show {
+            visibility: visible; opacity: 1; pointer-events: auto;
         }
         .lightbox img {
             max-width: 92vw; max-height: 92vh; border-radius: 8px;
             box-shadow: 0 8px 40px rgba(0,0,0,.4);
+            transform-origin: center center;
+            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: zoom-in;
+        }
+        .lightbox img.no-transition {
+            transition: none !important;
+        }
+        .lightbox img.zoomed {
+            cursor: grab;
+        }
+        .lightbox img.panning {
+            cursor: grabbing;
         }
         .lightbox iframe {
             width: 92vw; height: 92vh; border-radius: 8px;
             box-shadow: 0 8px 40px rgba(0,0,0,.4); background: #fff;
+            transform: scale(0.7);
+            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .lightbox.show iframe {
+            transform: scale(1);
         }
         .lightbox-close {
             position: absolute; top: 16px; right: 28px;
@@ -1941,6 +1964,35 @@
             opacity: .7; transition: opacity .2s; z-index: 20001;
         }
         .lightbox-close:hover { opacity: 1; }
+
+        /* 灯箱缩放工具栏 */
+        .lightbox-toolbar {
+            position: absolute; bottom: 24px; left: 50%;
+            transform: translateX(-50%);
+            display: flex; gap: 4px; align-items: center;
+            background: rgba(0,0,0,.65);
+            border-radius: 24px; padding: 4px 8px;
+            z-index: 20001;
+            opacity: 0;
+            transition: opacity 0.25s ease;
+            pointer-events: none;
+            backdrop-filter: blur(8px);
+        }
+        .lightbox.show .lightbox-toolbar {
+            opacity: 1; pointer-events: auto;
+        }
+        .lb-btn {
+            background: none; border: none; color: #fff;
+            width: 34px; height: 34px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; opacity: 0.75;
+            transition: opacity 0.15s, background 0.15s;
+            font-size: 18px; font-weight: 600; line-height: 1;
+            flex-shrink: 0;
+        }
+        .lb-btn:hover { opacity: 1; background: rgba(255,255,255,.15); }
+        .lb-sep { width: 1px; height: 20px; background: rgba(255,255,255,.25); margin: 0 3px; flex-shrink: 0; }
+        .lb-scale-text { color: #fff; font-size: 12px; min-width: 44px; text-align: center; opacity: 0.85; line-height: 34px; flex-shrink: 0; }
 
         /* ========== PDF 预览块 ========== */
         .md-pdf-block {
@@ -2025,6 +2077,14 @@
         body.skin-dark-green .attach-insert-btn { background: #0d1f17; }
         body.skin-dark-warm .attach-insert-btn { background: #1e1a14; }
 
+        /* 桌面端默认隐藏移动端专属元素 */
+        .mobile-back-btn,
+        .mobile-more-btn,
+        .mobile-actions-overlay,
+        .mobile-actions-panel {
+            display: none;
+        }
+
         /* ===== 移动端响应式 (宽度 ≤ 767px) ===== */
         @media (max-width: 767px) {
             /* --- 全局 --- */
@@ -2047,29 +2107,37 @@
             .sidebar {
                 width: 100% !important;
                 border-right: none;
+                transition: opacity 0.25s ease, transform 0.25s ease;
+            }
+            .app-body.editor-active .sidebar {
+                opacity: 0.1;
+                pointer-events: none;
+                transform: scale(0.97);
             }
 
-            /* --- 编辑器：覆盖到侧边栏上，默认隐藏 --- */
+            /* --- 编辑器：从右侧滑入，默认隐藏 --- */
             .editor-area {
                 position: absolute;
                 top: 0; left: 0; right: 0; bottom: 0;
                 z-index: 10;
-                display: none !important;
+                display: flex !important;
+                transform: translateX(105%);
+                transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
                 background: #f8f9fb; /* 无皮肤时的回退背景 */
             }
-            .app-body.editor-active .editor-area { display: flex !important; }
-            .app-body.editor-active .sidebar { display: none !important; }
+            .app-body.editor-active .editor-area { transform: translateX(0); }
 
             /* --- 返回按钮 --- */
             .mobile-back-btn {
                 display: inline-flex !important;
-                margin-right: 6px;
+                margin-right: 4px;
                 flex-shrink: 0;
-                min-width: 36px;
-                height: 36px;
+                min-width: 38px;
+                height: 38px;
+                color: inherit;
             }
 
-            /* --- 编辑器头部 --- */
+            /* --- 编辑器头部：隐藏全部操作按钮 --- */
             .editor-header {
                 padding: 8px 10px;
                 gap: 4px;
@@ -2079,15 +2147,112 @@
                 padding: 6px 4px;
                 min-width: 0;
             }
-            .editor-header .actions {
-                flex-wrap: nowrap;
-                overflow-x: auto;
-                gap: 2px;
-                -webkit-overflow-scrolling: touch;
-                padding-right: 4px;
-                scrollbar-width: none;
+            .editor-header .actions > .btn-action:not(.preview-toggle-btn),
+            .editor-header .actions > .divider {
+                display: none !important;
             }
-            .editor-header .actions::-webkit-scrollbar { display: none; }
+            /* 预览/编辑切换按钮保持在头部 */
+            .editor-header .preview-toggle-btn {
+                flex-shrink: 0;
+                min-width: 40px;
+                height: 40px;
+            }
+
+            /* --- 浮动更多按钮 FAB --- */
+            .mobile-more-btn {
+                display: flex !important;
+                position: absolute;
+                bottom: 20px;
+                right: 16px;
+                width: 48px;
+                height: 48px;
+                border-radius: 50%;
+                background: #667eea;
+                color: #fff;
+                border: none;
+                outline: none;
+                -webkit-tap-highlight-color: transparent;
+                box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+                z-index: 80;
+                cursor: pointer;
+                align-items: center;
+                justify-content: center;
+                transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+            }
+            .mobile-more-btn:active {
+                transform: scale(0.9);
+                box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+                background: #5a6fd6;
+            }
+
+            /* --- 功能面板遮罩 --- */
+            .mobile-actions-overlay {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.45);
+                z-index: 90;
+            }
+            .mobile-actions-overlay.show { display: block; }
+
+            /* --- 底部功能面板 --- */
+            .mobile-actions-panel {
+                display: block;
+                position: fixed;
+                bottom: 0; left: 0; right: 0;
+                background: #fff;
+                border-radius: 16px 16px 0 0;
+                padding: 12px 16px 28px;
+                z-index: 91;
+                transform: translateY(100%);
+                transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+                max-height: 70vh;
+                overflow-y: auto;
+                box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.12);
+            }
+            .mobile-actions-panel.show { transform: translateY(0); }
+            .ma-handle {
+                width: 36px; height: 4px;
+                background: #ddd;
+                border-radius: 2px;
+                margin: 0 auto 16px;
+            }
+            .ma-section { margin-bottom: 14px; }
+            .ma-label {
+                font-size: 11px;
+                color: #999;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 8px;
+                padding: 0 4px;
+            }
+            .ma-row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .ma-row button {
+                flex: 1 1 calc(25% - 6px);
+                min-width: 68px;
+                padding: 12px 6px;
+                border: 1px solid #e5e5e5;
+                border-radius: 10px;
+                background: #f8f8f8;
+                font-size: 11px;
+                color: #444;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 5px;
+                cursor: pointer;
+                transition: background 0.15s;
+                -webkit-tap-highlight-color: transparent;
+            }
+            .ma-row button:active { background: #eee; }
+            .ma-row button svg { width: 20px; height: 20px; flex-shrink: 0; }
+            .ma-row .ma-btn-label { font-size: 10px; line-height: 1; }
+            .ma-row .ma-btn-danger { border-color: #fecaca; color: #dc2626; background: #fef2f2; }
+            .ma-row .ma-btn-danger:active { background: #fee2e2; }
 
             /* --- 按钮：加大触控区域 (≥44px 推荐) --- */
             .btn-action {
@@ -2216,7 +2381,12 @@
             .md-toolbar .md-divider { display: none; }
 
             /* --- 图片灯箱 --- */
-            .lightbox img { max-width: 96vw; max-height: 80vh; }
+            .lightbox img { max-width: 96vw; max-height: 80vh; touch-action: pinch-zoom; }
+            .lightbox-toolbar { bottom: 32px; padding: 3px 6px; }
+            .lb-btn { width: 30px; height: 30px; font-size: 16px; }
+            .lb-scale-text { min-width: 36px; font-size: 11px; }
+            .lb-sep { height: 16px; }
+            .lightbox-close { top: 10px; right: 14px; font-size: 30px; }
 
             /* --- 状态栏 --- */
             .status-bar {
@@ -2247,3 +2417,37 @@
             .empty-state h3 { font-size: 16px; }
             .empty-state p { font-size: 13px; }
         }
+
+        /* ===== 移动端功能面板 - 暗色皮肤适配 ===== */
+        /* 暗夜黑 */
+        body.skin-dark .mobile-actions-panel { background: #1e1e2e; }
+        body.skin-dark .ma-handle { background: #45475a; }
+        body.skin-dark .ma-label { color: #6c7086; }
+        body.skin-dark .ma-row button { background: #313244; border-color: #45475a; color: #cdd6f4; }
+        body.skin-dark .ma-row button:active { background: #45475a; }
+        body.skin-dark .ma-row .ma-btn-danger { background: #3b1219; border-color: #6b2128; color: #f38ba8; }
+        body.skin-dark .ma-row .ma-btn-danger:active { background: #4b1a24; }
+        body.skin-dark .mobile-more-btn { background: #89b4fa; box-shadow: 0 4px 16px rgba(137, 180, 250, 0.25); }
+        body.skin-dark .mobile-more-btn:active { background: #74a0e8; }
+
+        /* 暗夜绿 */
+        body.skin-dark-green .mobile-actions-panel { background: #0d1f17; }
+        body.skin-dark-green .ma-handle { background: #2a5a3c; }
+        body.skin-dark-green .ma-label { color: #6a9a7a; }
+        body.skin-dark-green .ma-row button { background: #1a3a2a; border-color: #2a5a3c; color: #c8e6d0; }
+        body.skin-dark-green .ma-row button:active { background: #2a5a3c; }
+        body.skin-dark-green .ma-row .ma-btn-danger { background: #2a1515; border-color: #5a2a2a; color: #f9a8a8; }
+        body.skin-dark-green .ma-row .ma-btn-danger:active { background: #3a2020; }
+        body.skin-dark-green .mobile-more-btn { background: #228b48; box-shadow: 0 4px 16px rgba(34, 139, 72, 0.25); }
+        body.skin-dark-green .mobile-more-btn:active { background: #1d753c; }
+
+        /* 暗夜暖 */
+        body.skin-dark-warm .mobile-actions-panel { background: #1e1a14; }
+        body.skin-dark-warm .ma-handle { background: #3a3028; }
+        body.skin-dark-warm .ma-label { color: #706450; }
+        body.skin-dark-warm .ma-row button { background: #2e2820; border-color: #3a3028; color: #ddd0bc; }
+        body.skin-dark-warm .ma-row button:active { background: #3a3028; }
+        body.skin-dark-warm .ma-row .ma-btn-danger { background: #2a151a; border-color: #5a2a30; color: #f0b0a0; }
+        body.skin-dark-warm .ma-row .ma-btn-danger:active { background: #3a2025; }
+        body.skin-dark-warm .mobile-more-btn { background: #a67c28; box-shadow: 0 4px 16px rgba(166, 124, 40, 0.25); }
+        body.skin-dark-warm .mobile-more-btn:active { background: #8e6a22; }

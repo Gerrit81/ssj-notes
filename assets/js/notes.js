@@ -642,6 +642,21 @@
         document.querySelector('.app-body').classList.remove('editor-active');
     };
 
+    // 移动端：切换功能面板
+    window.toggleMobilePanel = function () {
+        const overlay = document.getElementById('mobileActionsOverlay');
+        const panel = document.getElementById('mobileActionsPanel');
+        if (!overlay || !panel) return;
+        const isOpen = panel.classList.contains('show');
+        if (isOpen) {
+            overlay.classList.remove('show');
+            panel.classList.remove('show');
+        } else {
+            overlay.classList.add('show');
+            panel.classList.add('show');
+        }
+    };
+
     // 打开笔记
     async function openNote(id) {
         try {
@@ -748,7 +763,7 @@
         if (e.key === 'Escape') {
             var lb = document.getElementById('lightbox');
             var im = document.getElementById('imageModal');
-            if (lb && lb.style.display === 'flex') {
+            if (lb && lb.classList.contains('show')) {
                 closeLightbox();
                 return;
             }
@@ -1630,30 +1645,199 @@
     })();
 
     // ===== 灯箱（图片 / PDF） =====
+    var lbScale = 1, lbPanX = 0, lbPanY = 0;
+    var lbPanning = false, lbPanStartX = 0, lbPanStartY = 0;
+    var lbDragged = false;
 
     function openLightbox(url, fileType) {
         fileType = fileType || 'image';
         var img = document.getElementById('lightboxImg');
         var pdf = document.getElementById('lightboxPdf');
         var lb = document.getElementById('lightbox');
+        var tb = document.getElementById('lightboxToolbar');
+
+        // 重置缩放状态
+        lbScale = 1; lbPanX = 0; lbPanY = 0;
+        img.classList.remove('no-transition', 'zoomed', 'panning');
+
         if (fileType === 'pdf') {
+            tb.style.display = 'none';
             img.style.display = 'none';
+            img.style.transform = '';
             pdf.src = url;
             pdf.style.display = 'block';
         } else {
+            tb.style.display = 'flex';
             pdf.style.display = 'none';
             pdf.src = '';
             img.src = url;
             img.style.display = 'block';
+
+            // 入场缩放动画：0.7 → 1
+            img.style.transform = 'scale(0.7)';
+            img.getBoundingClientRect(); // 强制 reflow
+            img.style.transform = 'scale(1)';
+            updateLbScaleText();
         }
-        lb.style.display = 'flex';
+
+        lb.classList.add('show');
     }
 
     function closeLightbox() {
-        document.getElementById('lightbox').style.display = 'none';
-        document.getElementById('lightboxImg').src = '';
-        document.getElementById('lightboxPdf').src = '';
+        var lb = document.getElementById('lightbox');
+        var img = document.getElementById('lightboxImg');
+
+        // 出场缩放动画：当前 → 0.7
+        img.classList.remove('no-transition', 'zoomed', 'panning');
+        img.style.transform = 'scale(0.7)';
+
+        setTimeout(function () {
+            lb.classList.remove('show');
+            lbScale = 1; lbPanX = 0; lbPanY = 0;
+            img.style.transform = '';
+            img.src = '';
+            document.getElementById('lightboxPdf').src = '';
+        }, 360);
     }
+
+    // ---- 缩放辅助函数 ----
+    function applyLbTransform(img) {
+        if (lbPanX === 0 && lbPanY === 0) {
+            img.style.transform = 'scale(' + lbScale + ')';
+        } else {
+            // translate 在 scale 之后应用，需要除以 scale 补偿
+            img.style.transform = 'scale(' + lbScale + ') translate(' + (lbPanX / lbScale) + 'px, ' + (lbPanY / lbScale) + 'px)';
+        }
+    }
+
+    function updateLbScaleText() {
+        var el = document.getElementById('lbScaleText');
+        if (el) el.textContent = Math.round(lbScale * 100) + '%';
+    }
+
+    function updateLbZoomCursor() {
+        var img = document.getElementById('lightboxImg');
+        if (lbScale > 1.01) {
+            img.classList.add('zoomed');
+        } else {
+            img.classList.remove('zoomed', 'panning');
+        }
+    }
+
+    // ---- 工具按钮 ----
+    window.lbZoomIn = function () {
+        lbScale = Math.min(10, Math.round((lbScale + 0.5) * 10) / 10);
+        var img = document.getElementById('lightboxImg');
+        img.classList.add('no-transition');
+        applyLbTransform(img);
+        updateLbScaleText();
+        updateLbZoomCursor();
+    };
+
+    window.lbZoomOut = function () {
+        lbScale = Math.max(0.15, Math.round((lbScale - 0.5) * 10) / 10);
+        var img = document.getElementById('lightboxImg');
+        if (lbScale <= 1.01) { lbScale = 1; lbPanX = 0; lbPanY = 0; }
+        img.classList.add('no-transition');
+        applyLbTransform(img);
+        updateLbScaleText();
+        updateLbZoomCursor();
+    };
+
+    window.lbOneToOne = function () {
+        var img = document.getElementById('lightboxImg');
+        if (!img.naturalWidth || !img.width) return;
+        lbScale = img.naturalWidth / img.width;
+        lbPanX = 0; lbPanY = 0;
+        img.classList.add('no-transition');
+        applyLbTransform(img);
+        updateLbScaleText();
+        updateLbZoomCursor();
+    };
+
+    window.lbFit = function () {
+        lbScale = 1; lbPanX = 0; lbPanY = 0;
+        var img = document.getElementById('lightboxImg');
+        img.classList.add('no-transition');
+        img.style.transform = 'scale(1)';
+        img.classList.remove('zoomed', 'panning');
+        updateLbScaleText();
+        // 下一帧恢复过渡，供后续动画使用
+        requestAnimationFrame(function () { img.classList.remove('no-transition'); });
+    };
+
+    // ---- 滚轮缩放 ----
+    document.addEventListener('wheel', function (e) {
+        var lb = document.getElementById('lightbox');
+        if (!lb || !lb.classList.contains('show')) return;
+        var img = document.getElementById('lightboxImg');
+        if (!img || img.style.display === 'none') return;
+
+        var rect = lb.getBoundingClientRect();
+        if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        var delta = e.deltaY > 0 ? -0.1 : 0.1;
+        lbScale = Math.max(0.15, Math.min(10, Math.round((lbScale + delta) * 10) / 10));
+        if (lbScale <= 1.01) { lbScale = 1; lbPanX = 0; lbPanY = 0; }
+
+        img.classList.add('no-transition');
+        applyLbTransform(img);
+        updateLbScaleText();
+        updateLbZoomCursor();
+    }, { passive: false });
+
+    // ---- 拖拽平移 ----
+    document.getElementById('lightboxImg').addEventListener('mousedown', function (e) {
+        if (lbScale <= 1.01) return;
+        e.preventDefault();
+        lbPanning = true;
+        lbDragged = false;
+        lbPanStartX = e.clientX - lbPanX;
+        lbPanStartY = e.clientY - lbPanY;
+        this.classList.add('panning');
+    });
+
+    document.addEventListener('mousemove', function (e) {
+        if (!lbPanning) return;
+        var dx = e.clientX - lbPanStartX;
+        var dy = e.clientY - lbPanStartY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) lbDragged = true;
+        lbPanX = dx;
+        lbPanY = dy;
+        var img = document.getElementById('lightboxImg');
+        applyLbTransform(img);
+    });
+
+    document.addEventListener('mouseup', function () {
+        if (!lbPanning) return;
+        lbPanning = false;
+        var img = document.getElementById('lightboxImg');
+        if (img) img.classList.remove('panning');
+    });
+
+    // 阻止拖拽后触发 click（避免误关灯箱）
+    document.getElementById('lightbox').addEventListener('click', function (e) {
+        if (lbDragged) {
+            e.stopPropagation();
+            e.preventDefault();
+            lbDragged = false;
+        }
+    }, true);
+
+    // 双击图片在 1:1 / 适应 之间切换
+    document.getElementById('lightboxImg').addEventListener('dblclick', function (e) {
+        var lb = document.getElementById('lightbox');
+        if (!lb || !lb.classList.contains('show')) return;
+        e.stopPropagation();
+        if (lbScale > 1.01) {
+            lbFit();
+        } else {
+            lbOneToOne();
+        }
+    });
 
     // ===== 预览区点击图片/PDF 弹窗 =====
     document.getElementById('previewContent').addEventListener('click', function(e) {

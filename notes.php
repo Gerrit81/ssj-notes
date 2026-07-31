@@ -49,7 +49,7 @@ require_once __DIR__ . '/header.php';
 ?>
     <meta name="csrf-token" content="<?= $csrf_token ?>">
     <meta name="session-timeout" content="<?= $sessionTimeoutMinutes ?>">
-    <link rel="stylesheet" href="assets/css/notes.css?v=1.27.0">
+    <link rel="stylesheet" href="assets/css/notes.css?v=1.29.0">
 
 </head>
 <body class="skin-<?= $currentSkin ?>" data-skin="<?= $currentSkin ?>" data-font-family="<?= $currentFontFamily ?>" data-font-size="<?= $currentFontSize ?>" data-auto-save-interval="<?= $currentAutoSaveInterval ?>" data-password-min-length="<?= getPasswordMinLength() ?>" data-keep-login="<?= empty($_SESSION['keep_login']) ? 0 : 1 ?>">
@@ -391,6 +391,11 @@ require_once __DIR__ . '/header.php';
             <span class="shortcut-hint"><kbd>Ctrl+F</kbd> 搜索 &nbsp; <kbd>Ctrl+S</kbd> 保存 &nbsp; <kbd>Ctrl+D</kbd> 分隔符 &nbsp; <kbd>Esc</kbd> 清空搜索</span>
         </div>
     </div>
+
+    <!-- 移动端浮动更多按钮 -->
+    <button class="mobile-more-btn" id="mobileMoreBtn" onclick="toggleMobilePanel()" aria-label="更多操作">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+    </button>
 </div>
 </div>
 
@@ -437,13 +442,53 @@ require_once __DIR__ . '/header.php';
 </div>
 
 <!-- 灯箱（图片/PDF） -->
-<div class="lightbox" id="lightbox" style="display:none;" onclick="closeLightbox()">
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
     <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
     <img id="lightboxImg" src="" alt="图片预览">
     <iframe id="lightboxPdf" src="" style="display:none;" frameborder="0"></iframe>
+    <div class="lightbox-toolbar" id="lightboxToolbar">
+        <button class="lb-btn" onclick="event.stopPropagation();lbZoomOut()" title="缩小">−</button>
+        <span class="lb-scale-text" id="lbScaleText">100%</span>
+        <button class="lb-btn" onclick="event.stopPropagation();lbZoomIn()" title="放大">+</button>
+        <span class="lb-sep"></span>
+        <button class="lb-btn" onclick="event.stopPropagation();lbOneToOne()" title="1:1 原始尺寸">1:1</button>
+        <button class="lb-btn" onclick="event.stopPropagation();lbFit()" title="适应屏幕">⊡</button>
+    </div>
 </div>
 
-<script src="assets/js/notes.js?v=1.27.0"></script>
+<script src="assets/js/notes.js?v=1.29.0"></script>
+
+<!-- 移动端功能面板 -->
+<div class="mobile-actions-overlay" id="mobileActionsOverlay" onclick="toggleMobilePanel()"></div>
+<div class="mobile-actions-panel" id="mobileActionsPanel">
+    <div class="ma-handle"></div>
+    <div class="ma-section">
+        <div class="ma-label">编辑工具</div>
+        <div class="ma-row">
+            <button onclick="toggleMobilePanel();toggleFontSelector()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 17h16M14 21h-4M18 3v4M6 3v4M6 13v8"/></svg><span class="ma-btn-label">字体</span></button>
+            <button onclick="toggleMobilePanel();toggleSizeSelector()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><text x="4" y="17" font-size="16" fill="currentColor" font-family="serif">A</text><text x="15" y="21" font-size="11" fill="currentColor" font-family="serif">a</text></svg><span class="ma-btn-label">字号</span></button>
+            <button onclick="toggleMobilePanel();insertSeparator()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="8" x2="20" y2="8"/><line x1="8" y1="14" x2="16" y2="14"/></svg><span class="ma-btn-label">分隔符</span></button>
+            <button onclick="toggleMobilePanel();openImageModal()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span class="ma-btn-label">插图</span></button>
+        </div>
+    </div>
+    <div class="ma-section">
+        <div class="ma-label">笔记操作</div>
+        <div class="ma-row">
+            <button onclick="toggleMobilePanel();saveNote()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg><span class="ma-btn-label">保存</span></button>
+            <button onclick="toggleMobilePanel();togglePin()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg><span class="ma-btn-label">置顶</span></button>
+            <button onclick="toggleMobilePanel();exportTXT()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span class="ma-btn-label">导出</span></button>
+            <button onclick="toggleMobilePanel();confirmDelete()" class="ma-btn-danger"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span class="ma-btn-label">删除</span></button>
+        </div>
+    </div>
+    <div class="ma-section">
+        <div class="ma-label">工具与外观</div>
+        <div class="ma-row">
+            <button onclick="toggleMobilePanel();toggleAutoSaveSelector()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span class="ma-btn-label">自动保存</span></button>
+            <button onclick="toggleMobilePanel();openTrash()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 7h14l-2 13a1.5 1.5 0 0 1-1.5 1.5H8.5A1.5 1.5 0 0 1 7 20Z"/><line x1="3" y1="7" x2="21" y2="7"/></svg><span class="ma-btn-label">回收站</span></button>
+            <button onclick="toggleMobilePanel();toggleSkinSelector()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6M12 17v6"/></svg><span class="ma-btn-label">皮肤</span></button>
+        </div>
+    </div>
+</div>
 
 </body>
 </html>
