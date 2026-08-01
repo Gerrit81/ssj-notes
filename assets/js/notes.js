@@ -361,21 +361,73 @@
         selector.classList.toggle('show');
     }
 
+    // 还原选择器到编辑器头部
+    function restoreSelectorsHome() {
+        var header = document.getElementById('editorHeader');
+        ['fontSelector','sizeSelector','skinSelector','autoSaveSelector'].forEach(function (id) {
+            var sel = document.getElementById(id);
+            if (sel && sel.parentNode !== header) {
+                if (sel._mobileMoved) {
+                    header.appendChild(sel);
+                    sel._mobileMoved = false;
+                }
+            }
+        });
+    }
+
     // 定位下拉选择器到按钮下方，自动检测右边界溢出
     function positionSelector(selector, btn) {
-        const btnRect = btn.getBoundingClientRect();
-        const headerRect = document.getElementById('editorHeader').getBoundingClientRect();
-        const selWidth = selector.offsetWidth || 220;
-        selector.style.top = 'calc(100% + 8px)';
-        // 检测右侧是否溢出容器，若溢出则改为右对齐
-        if (btnRect.right - headerRect.left + selWidth > headerRect.width - 4) {
-            selector.style.right = '0';
-            selector.style.left = 'auto';
-        } else {
-            selector.style.left = (btnRect.left - headerRect.left) + 'px';
+        // 桌面端：还原到 header，恢复定位
+        if (window.innerWidth > 767) {
+            restoreSelectorsHome();
+            selector.style.position = 'absolute';
+            selector.style.transform = 'none';
+            selector.style.maxWidth = '';
+            document.getElementById('selectorOverlay').classList.remove('show');
+            const btnRect = btn.getBoundingClientRect();
+            const headerRect = document.getElementById('editorHeader').getBoundingClientRect();
+            const selWidth = selector.offsetWidth || 220;
+            selector.style.top = 'calc(100% + 8px)';
+            if (btnRect.right - headerRect.left + selWidth > headerRect.width - 4) {
+                selector.style.right = '0';
+                selector.style.left = 'auto';
+            } else {
+                selector.style.left = (btnRect.left - headerRect.left) + 'px';
+                selector.style.right = 'auto';
+            }
+            return;
+        }
+
+        // 移动端：预测 toggle 结果（positionSelector 在 toggle 前被调用）
+        var willShown = !selector.classList.contains('show');
+        if (willShown) {
+            // 移到 body 下，跳出 .editor-area 的层叠上下文（z-index: 10）
+            if (selector.parentNode !== document.body) {
+                selector._mobileMoved = true;
+                document.body.appendChild(selector);
+            }
+            selector.style.position = 'fixed';
+            selector.style.left = '50%';
+            selector.style.top = '50%';
+            selector.style.transform = 'translate(-50%, -50%)';
             selector.style.right = 'auto';
+            selector.style.width = '';
+            selector.style.maxWidth = 'calc(100vw - 40px)';
+            document.getElementById('selectorOverlay').classList.add('show');
+        } else {
+            // 即将隐藏：收回遮罩
+            document.getElementById('selectorOverlay').classList.remove('show');
         }
     }
+
+    // 关闭所有选择器（也用于遮罩层点击）
+    window.closeAllSelectors = function () {
+        ['fontSelector','sizeSelector','skinSelector','autoSaveSelector'].forEach(function (id) {
+            document.getElementById(id).classList.remove('show');
+        });
+        restoreSelectorsHome();
+        document.getElementById('selectorOverlay').classList.remove('show');
+    };
 
     async function changeSkin(skin) {
         if (skin === currentSkin) {
@@ -904,16 +956,16 @@
     }
 
     // 将附件插入到当前编辑的文章
-    // size: 'l'(大/默认), 'm'(中), 's'(小) — 仅对图片生效
+    // size: 'l'(大), 'm'(中/默认), 's'(小) — 仅对图片生效
     function insertAttachmentToEditor(i, size) {
-        size = size || 'l';
+        size = size || 'm';
         var file = attachmentFiles[i];
         if (!file) return;
         var isPdf = /\.pdf$/i.test(file.filename);
         var alt = isPdf
             ? file.filename.replace(/\.pdf$/i, '')
             : file.filename.replace(/\.[^.]+$/, '') || '图片';
-        var sizeSuffix = (!isPdf && size !== 'l') ? ('{' + size + '}') : '';
+        var sizeSuffix = !isPdf ? ('{' + size + '}') : '';
         var md = '![' + alt + '](' + file.path + ')' + sizeSuffix;
         var ta = document.getElementById('editorContent');
         if (!ta) { showToast('请先选择一篇笔记进入编辑模式', true); return; }
@@ -947,7 +999,7 @@
 
         // 高亮当前默认尺寸
         popup.querySelectorAll('.attach-size-opt').forEach(function(opt) {
-            opt.classList.toggle('attach-size-active', opt.dataset.size === 'l');
+            opt.classList.toggle('attach-size-active', opt.dataset.size === 'm');
         });
     }
 
@@ -1349,9 +1401,12 @@
         }
     }
 
+    var savedEditScrollTop = 0;
+
     function switchToEditMode() {
         isPreviewMode = false;
-        document.getElementById('editorContent').style.display = '';
+        var ta = document.getElementById('editorContent');
+        ta.style.display = '';
         document.getElementById('previewContent').style.display = 'none';
         document.getElementById('lineNumbers').style.display = '';
         document.getElementById('mdToolbar').style.display = '';
@@ -1359,12 +1414,15 @@
         document.getElementById('previewIconEdit').style.display = '';
         document.getElementById('previewIconView').style.display = 'none';
         document.getElementById('previewToggleBtn').setAttribute('data-tooltip', '切换预览');
-        document.getElementById('editorContent').focus();
+        ta.scrollTop = savedEditScrollTop;
+        ta.focus();
         updateLineNumbers();
     }
 
     function switchToPreviewMode() {
         isPreviewMode = true;
+        var ta = document.getElementById('editorContent');
+        savedEditScrollTop = ta.scrollTop;
         if (isDirty) saveNote(true);
         renderMarkdown();
         document.getElementById('editorContent').style.display = 'none';
@@ -1424,8 +1482,12 @@
         html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
         html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
 
-        // 引用
-        html = html.replace(/^&gt;\s?(.+)$/gm, '<blockquote>$1</blockquote>');
+        // 引用 — 先将每行标记为占位标签，再合并连续的为一个 blockquote
+        html = html.replace(/^&gt;\s?(.+)$/gm, '<!--bq-->$1<!--/bq-->');
+        html = html.replace(/((?:<!--bq-->.*?<!--\/bq-->\n?)+)/g, function(m) {
+            var inner = m.replace(/<!--bq-->(.*?)<!--\/bq-->\n?/g, '$1<br>');
+            return '<blockquote>' + inner.replace(/<br>$/, '') + '</blockquote>';
+        });
 
         // 分隔线
         html = html.replace(/^(-{3,}|\*{3,})$/gm, '<hr>');
@@ -1472,10 +1534,28 @@
         var start = ta.selectionStart;
         var end = ta.selectionEnd;
         var sel = ta.value.substring(start, end);
-        ta.value = ta.value.substring(0, start) + before + sel + after + ta.value.substring(end);
-        ta.focus();
+
+        // 块级标记（before 以 \n 开头，如引用 >、列表 -/1.）：多行选中时每行单独添加前缀
+        if (before.indexOf('\n') === 0 && sel.includes('\n')) {
+            var prefix = before.substring(1); // 去掉前导 \n，得到实际标记如 '> '、'- '、'1. '
+            var lines = sel.split('\n');
+            for (var i = 0; i < lines.length; i++) {
+                lines[i] = prefix + lines[i] + after;
+            }
+            var result = lines.join('\n');
+            ta.setRangeText(result, start, end, 'select');
+            ta.setSelectionRange(start + result.length, start + result.length);
+            ta.focus();
+            ta.dispatchEvent(new Event('input'));
+            return;
+        }
+
+        // 单行或行内操作（加粗、斜体、行内代码等）
+        ta.setRangeText(before + sel + after, start, end, 'select');
         var offset = before.indexOf('\n') === 0 ? 1 : 0;
-        ta.selectionStart = ta.selectionEnd = start + before.length + sel.length - offset;
+        var cursorPos = start + before.length + sel.length + after.length - offset;
+        ta.setSelectionRange(cursorPos, cursorPos);
+        ta.focus();
         ta.dispatchEvent(new Event('input'));
     }
 
@@ -1561,7 +1641,7 @@
         // 读取尺寸选择
         var sizeRadio = document.querySelector('input[name="imgSize"]:checked');
         var sizeSuffix = '';
-        if (!isPdf && sizeRadio && sizeRadio.value !== 'l') {
+        if (!isPdf && sizeRadio) {
             sizeSuffix = '{' + sizeRadio.value + '}';
         }
         var md = '![' + alt + '](' + url + ')' + sizeSuffix;
@@ -1661,6 +1741,11 @@
         img.classList.remove('no-transition', 'zoomed', 'panning');
 
         if (fileType === 'pdf') {
+            // 移动端：用新标签页打开，利用浏览器原生 PDF 阅读器
+            if (window.innerWidth <= 767) {
+                window.open(url, '_blank');
+                return;
+            }
             tb.style.display = 'none';
             img.style.display = 'none';
             img.style.transform = '';
@@ -1818,24 +1903,36 @@
         if (img) img.classList.remove('panning');
     });
 
-    // 阻止拖拽后触发 click（避免误关灯箱）
-    document.getElementById('lightbox').addEventListener('click', function (e) {
-        if (lbDragged) {
-            e.stopPropagation();
-            e.preventDefault();
-            lbDragged = false;
-        }
-    }, true);
-
-    // 双击图片在 1:1 / 适应 之间切换
-    document.getElementById('lightboxImg').addEventListener('dblclick', function (e) {
+    // 图片单击/双击区分：单击关闭灯箱，双击切换 1:1/适应
+    var lbClickTimer = null;
+    document.getElementById('lightboxImg').addEventListener('click', function (e) {
         var lb = document.getElementById('lightbox');
         if (!lb || !lb.classList.contains('show')) return;
-        e.stopPropagation();
-        if (lbScale > 1.01) {
-            lbFit();
+
+        // 拖拽后忽略 click
+        if (lbDragged) {
+            lbDragged = false;
+            e.stopPropagation();
+            return;
+        }
+
+        if (lbClickTimer) {
+            // 是双击
+            clearTimeout(lbClickTimer);
+            lbClickTimer = null;
+            e.stopPropagation();
+            if (lbScale > 1.01) {
+                lbFit();
+            } else {
+                lbOneToOne();
+            }
         } else {
-            lbOneToOne();
+            // 第一次点击，等 300ms 确认不是双击
+            e.stopPropagation();
+            lbClickTimer = setTimeout(function () {
+                lbClickTimer = null;
+                closeLightbox();
+            }, 300);
         }
     });
 

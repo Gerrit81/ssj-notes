@@ -49,7 +49,7 @@ require_once __DIR__ . '/header.php';
 ?>
     <meta name="csrf-token" content="<?= $csrf_token ?>">
     <meta name="session-timeout" content="<?= $sessionTimeoutMinutes ?>">
-    <link rel="stylesheet" href="assets/css/notes.css?v=1.29.0">
+    <link rel="stylesheet" href="assets/css/notes.css?v=1.30.0">
 
 </head>
 <body class="skin-<?= $currentSkin ?>" data-skin="<?= $currentSkin ?>" data-font-family="<?= $currentFontFamily ?>" data-font-size="<?= $currentFontSize ?>" data-auto-save-interval="<?= $currentAutoSaveInterval ?>" data-password-min-length="<?= getPasswordMinLength() ?>" data-keep-login="<?= empty($_SESSION['keep_login']) ? 0 : 1 ?>">
@@ -415,8 +415,8 @@ require_once __DIR__ . '/header.php';
             <div class="form-group">
                 <label>显示尺寸</label>
                 <div class="img-size-selector" id="imgSizeSelector">
-                    <label class="img-size-opt" data-size="l"><input type="radio" name="imgSize" value="l" checked><span>大</span></label>
-                    <label class="img-size-opt" data-size="m"><input type="radio" name="imgSize" value="m"><span>中</span></label>
+                    <label class="img-size-opt" data-size="l"><input type="radio" name="imgSize" value="l"><span>大</span></label>
+                    <label class="img-size-opt" data-size="m"><input type="radio" name="imgSize" value="m" checked><span>中</span></label>
                     <label class="img-size-opt" data-size="s"><input type="radio" name="imgSize" value="s"><span>小</span></label>
                 </div>
             </div>
@@ -456,10 +456,11 @@ require_once __DIR__ . '/header.php';
     </div>
 </div>
 
-<script src="assets/js/notes.js?v=1.29.0"></script>
+<script src="assets/js/notes.js?v=1.30.0"></script>
 
 <!-- 移动端功能面板 -->
 <div class="mobile-actions-overlay" id="mobileActionsOverlay" onclick="toggleMobilePanel()"></div>
+<div class="selector-overlay" id="selectorOverlay" onclick="closeAllSelectors()"></div>
 <div class="mobile-actions-panel" id="mobileActionsPanel">
     <div class="ma-handle"></div>
     <div class="ma-section">

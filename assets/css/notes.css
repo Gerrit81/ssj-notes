@@ -2081,7 +2081,8 @@
         .mobile-back-btn,
         .mobile-more-btn,
         .mobile-actions-overlay,
-        .mobile-actions-panel {
+        .mobile-actions-panel,
+        .selector-overlay {
             display: none;
         }
 
@@ -2194,6 +2195,17 @@
                 z-index: 90;
             }
             .mobile-actions-overlay.show { display: block; }
+
+            /* --- 选择器遮罩（皮肤/字体/字号/自动保存） --- */
+            .selector-overlay {
+                display: none; position: fixed; inset: 0;
+                background: rgba(0,0,0,0.35); z-index: 199;
+                pointer-events: none;
+            }
+            .selector-overlay.show { display: block; pointer-events: auto; }
+
+            /* 移动端选择器居中弹窗 */
+            .dropdown-selector { z-index: 200; }
 
             /* --- 底部功能面板 --- */
             .mobile-actions-panel {
