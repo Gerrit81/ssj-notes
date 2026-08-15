@@ -41,6 +41,7 @@
         document.getElementById('newPassword').value = '';
         document.getElementById('confirmPassword').value = '';
         document.getElementById('oldPassword').focus();
+        load2faStatus();
     }
 
     // 关闭修改密码弹窗
@@ -104,6 +105,147 @@
         }
         btn.disabled = false;
         btn.textContent = '修改密码';
+    }
+
+    // --- 双重认证(2FA) ---
+
+    // 加载 2FA 状态
+    async function load2faStatus() {
+        const statusEl = document.getElementById('fa2Status');
+        const bodyEl = document.getElementById('fa2Body');
+        if (!statusEl || !bodyEl) return;
+        try {
+            const resp = await apiFetch('api.php?action=get2faStatus');
+            const data = await resp.json();
+            if (data.enabled) {
+                statusEl.textContent = '已开启';
+                statusEl.className = 'fa2-badge fa2-on';
+                bodyEl.innerHTML =
+                    '<div class="fa2-row"><span class="fa2-desc">双重认证已开启，登录时需输入密码和验证码。</span></div>' +
+                    '<div class="fa2-row fa2-actions"><button class="btn-confirm-pwd fa2-danger" onclick="open2faDisable()">关闭双重认证</button></div>';
+            } else {
+                statusEl.textContent = '未开启';
+                statusEl.className = 'fa2-badge fa2-off';
+                bodyEl.innerHTML =
+                    '<div class="fa2-row"><span class="fa2-desc">开启后，登录时除密码外还需输入 6 位动态验证码，有效保护账户安全。</span></div>' +
+                    '<div class="fa2-row fa2-actions"><button class="btn-confirm-pwd" id="btnEnable2fa" onclick="start2faSetup()">开启双重认证</button></div>';
+            }
+        } catch {
+            statusEl.textContent = '状态获取失败';
+            statusEl.className = 'fa2-badge fa2-off';
+            bodyEl.innerHTML = '';
+        }
+    }
+
+    // 开始绑定 2FA（生成密钥 + 恢复码，暂存会话）
+    async function start2faSetup() {
+        const bodyEl = document.getElementById('fa2Body');
+        const btn = document.getElementById('btnEnable2fa');
+        if (btn) { btn.disabled = true; btn.textContent = '生成中...'; }
+        try {
+            const formData = new FormData();
+            formData.append('action', 'setup2fa');
+            formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
+            const resp = await fetch('api.php', { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (!resp.ok) {
+                showToast(data.error || '生成失败', true);
+                load2faStatus();
+                return;
+            }
+            const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=170x170&data=' + encodeURIComponent(data.otpauth_uri);
+            bodyEl.innerHTML =
+                '<div class="fa2-tip">使用身份验证器应用（如 Google Authenticator、Microsoft Authenticator）扫描下方二维码，或手动输入密钥添加。</div>' +
+                '<div class="fa2-qr-wrap">' +
+                '  <img class="fa2-qr" src="' + qrUrl + '" alt="二维码" onerror="this.style.display=\'none\';document.getElementById(\'fa2QrFallback\').style.display=\'block\';">' +
+                '  <div class="fa2-qr-fallback" id="fa2QrFallback" style="display:none;">二维码加载失败，请手动输入下方密钥添加。</div>' +
+                '</div>' +
+                '<div class="fa2-row"><span class="fa2-label">密钥</span><code class="fa2-secret" id="fa2Secret">' + data.secret + '</code></div>' +
+                '<div class="fa2-row"><span class="fa2-label">动态码</span><input type="text" id="fa2Code" class="fa2-code" maxlength="6" placeholder="输入 6 位验证码" inputmode="numeric" autocomplete="one-time-code"></div>' +
+                '<div class="fa2-row fa2-actions"><button class="btn-cancel" onclick="load2faStatus()">取消</button><button class="btn-confirm-pwd" id="btnConfirm2fa" onclick="confirm2faEnable()">确认绑定</button></div>';
+            document.getElementById('fa2Code').focus();
+        } catch {
+            showToast('网络错误，请重试。', true);
+            load2faStatus();
+        }
+    }
+
+    // 确认绑定 2FA
+    async function confirm2faEnable() {
+        const code = document.getElementById('fa2Code').value.trim();
+        if (!/^\d{6}$/.test(code)) {
+            showToast('请输入 6 位数字验证码。', true);
+            return;
+        }
+        const btn = document.getElementById('btnConfirm2fa');
+        if (btn) { btn.disabled = true; btn.textContent = '绑定中...'; }
+        try {
+            const formData = new FormData();
+            formData.append('action', 'enable2fa');
+            formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
+            formData.append('code', code);
+            const resp = await fetch('api.php', { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (!resp.ok) {
+                showToast(data.error || '绑定失败', true);
+                if (btn) { btn.disabled = false; btn.textContent = '确认绑定'; }
+                return;
+            }
+            // 显示恢复码（仅此一次）
+            const codes = (data.recovery_codes || []).map(function (c) {
+                return '<code class="fa2-rc">' + c + '</code>';
+            }).join('');
+            const bodyEl = document.getElementById('fa2Body');
+            bodyEl.innerHTML =
+                '<div class="fa2-tip fa2-warn">双重认证已开启！请立即保存以下恢复码（每个仅可使用一次），用于无法使用验证器时恢复账户登录。</div>' +
+                '<div class="fa2-recovery">' + codes + '</div>' +
+                '<div class="fa2-row fa2-actions"><button class="btn-confirm-pwd" onclick="load2faStatus()">我已保存</button></div>';
+            document.getElementById('fa2Status').textContent = '已开启';
+            document.getElementById('fa2Status').className = 'fa2-badge fa2-on';
+            showToast('双重认证已开启', false);
+        } catch {
+            showToast('网络错误，请重试。', true);
+            if (btn) { btn.disabled = false; btn.textContent = '确认绑定'; }
+        }
+    }
+
+    // 打开关闭 2FA 确认
+    function open2faDisable() {
+        const bodyEl = document.getElementById('fa2Body');
+        bodyEl.innerHTML =
+            '<div class="fa2-tip">关闭双重认证需验证当前动态码，输入验证码后即可关闭。</div>' +
+            '<div class="fa2-row"><span class="fa2-label">动态码</span><input type="text" id="fa2DisableCode" class="fa2-code" maxlength="6" placeholder="输入 6 位验证码" inputmode="numeric" autocomplete="one-time-code"></div>' +
+            '<div class="fa2-row fa2-actions"><button class="btn-cancel" onclick="load2faStatus()">取消</button><button class="btn-confirm-pwd fa2-danger" id="btnConfirm2faDisable" onclick="confirm2faDisable()">确认关闭</button></div>';
+        document.getElementById('fa2DisableCode').focus();
+    }
+
+    // 确认关闭 2FA
+    async function confirm2faDisable() {
+        const code = document.getElementById('fa2DisableCode').value.trim();
+        if (!/^\d{6}$/.test(code)) {
+            showToast('请输入 6 位数字验证码。', true);
+            return;
+        }
+        const btn = document.getElementById('btnConfirm2faDisable');
+        if (btn) { btn.disabled = true; btn.textContent = '处理中...'; }
+        try {
+            const formData = new FormData();
+            formData.append('action', 'disable2fa');
+            formData.append('csrf_token', document.querySelector('meta[name="csrf-token"]').content);
+            formData.append('code', code);
+            const resp = await fetch('api.php', { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (!resp.ok) {
+                showToast(data.error || '关闭失败', true);
+                if (btn) { btn.disabled = false; btn.textContent = '确认关闭'; }
+                return;
+            }
+            load2faStatus();
+            showToast('双重认证已关闭', false);
+        } catch {
+            showToast('网络错误，请重试。', true);
+            if (btn) { btn.disabled = false; btn.textContent = '确认关闭'; }
+        }
     }
 
     // 初始化
@@ -894,6 +1036,47 @@
     document.getElementById('attachOverlay').addEventListener('click', function(e) {
         if (e.target === this) closeAttachPanel();
     });
+
+    // ===== 分享链接管理 =====
+    function openSharePanel() {
+        document.getElementById('shareOverlay').classList.add('show');
+    }
+
+    function closeSharePanel() {
+        document.getElementById('shareOverlay').classList.remove('show');
+    }
+
+    document.getElementById('shareOverlay').addEventListener('click', function(e) {
+        if (e.target === this) closeSharePanel();
+    });
+
+    function copyShareLink(btn) {
+        var input = btn.parentElement.querySelector('input[type="text"]');
+        if (!input) return;
+        input.select();
+        input.setSelectionRange(0, 99999);
+        var ok = false;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(input.value).then(function() {
+                showToast('链接已复制到剪贴板');
+            }).catch(function() { ok = false; fallbackCopyShare(input); });
+        } else {
+            fallbackCopyShare(input);
+        }
+        function fallbackCopyShare(el) {
+            try {
+                document.execCommand('copy');
+                showToast('链接已复制到剪贴板');
+            } catch (e) {
+                showToast('复制失败，请手动选择复制', true);
+            }
+        }
+    }
+
+    // 生成/吊销后有提示时自动打开分享面板
+    if (document.body.getAttribute('data-share-flash') === '1') {
+        openSharePanel();
+    }
 
     async function loadAttachments() {
         var body = document.getElementById('attachBody');

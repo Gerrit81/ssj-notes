@@ -42,14 +42,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 // 随机生成密码
                 $generatedPassword = substr(bin2hex(random_bytes(5)), 0, 10);
                 $hash = password_hash($generatedPassword, PASSWORD_DEFAULT);
-                $stmt = $db->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
+                // v1.34.0：重置后强制用户下次登录修改密码
+                $stmt = $db->prepare("UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?");
                 $stmt->execute([$hash, $targetUserId]);
 
                 // 记录审计日志
                 $stmt = $db->prepare("INSERT INTO password_reset_log (user_id, reset_by, created_at) VALUES (?, 'admin', ?)");
                 $stmt->execute([$targetUserId, date('Y-m-d H:i:s')]);
 
-                $message = "用户「{$user['username']}」的密码已重置。";
+                $message = "用户「{$user['username']}」的密码已重置，该用户下次登录将被要求立即修改密码。";
                 $messageType = 'success';
                 $message .= ":::PASSWORD:::" . $generatedPassword . ":::" . $user['username'];
                 appLog("管理员随机重置用户 {$user['username']} 的密码");
@@ -257,13 +258,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 setSetting('register_mode', 'open');
                 setSetting('password_min_length', '4');
                 setSetting('login_ratelimit_enabled', '0');
-                $message = '已切换为【内网便捷模式】：开放注册、无登录限速、密码最短4位。';
+                setSetting('captcha_enabled', '0');
+                setSetting('require_2fa', '0');
+                $message = '已切换为【内网便捷模式】：开放注册、无登录限速、无需验证码、密码最短4位、二次认证已关闭。';
             } else {
                 setSetting('deploy_mode', 'internet');
                 setSetting('register_mode', 'invite');
                 setSetting('password_min_length', '8');
                 setSetting('login_ratelimit_enabled', '1');
-                $message = '已切换为【外网安全模式】：仅邀请注册、启用登录限速（5次失败锁定15分钟）、密码最短8位。';
+                setSetting('captcha_enabled', '1');
+                setSetting('require_2fa', '1');
+                $message = '已切换为【外网安全模式】：仅邀请注册、登录限速（5次失败锁定15分钟）、登录验证码、密码最短8位、二次认证已开启。';
             }
             $messageType = 'success';
             appLog("管理员切换部署模式: {$newMode}");
@@ -273,6 +278,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $registerMode = getRegisterMode();
             $passwordMinLength = getPasswordMinLength();
             $ratelimitEnabled = getSetting('login_ratelimit_enabled', '0');
+            $captchaEnabled = getSetting('captcha_enabled', '0') === '1';
+        }
+    }
+}
+
+// 处理二次认证开关
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_2fa_settings') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $newRequire2fa = isset($_POST['require_2fa']) ? '1' : '0';
+        setSetting('require_2fa', $newRequire2fa);
+        setSetting('deploy_mode', 'custom');
+        $message = $newRequire2fa === '1'
+            ? '二次认证已开启：所有账号登录时需输入手机动态码，未绑定用户首次登录将被引导绑定。'
+            : '二次认证已关闭：登录不再要求动态码。';
+        $messageType = 'success';
+    }
+}
+
+// 处理吊销分享链接（分享链接由各账号自行生成，管理员仅可全局查看/吊销）
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'revoke_share_link') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $linkId = (int)($_POST['link_id'] ?? 0);
+        if ($linkId > 0 && revokeShareToken($linkId)) {
+            appLog("管理员吊销分享链接 ID={$linkId}");
+            $message = '分享链接已吊销，该链接立即失效。';
+            $messageType = 'success';
+        } else {
+            $message = '吊销失败，链接不存在或已失效。';
+            $messageType = 'error';
+        }
+    }
+}
+
+// 处理重置用户二次认证
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'reset_user_2fa') {
+    if (!checkCSRF()) {
+        $message = '安全校验失败，请刷新页面重试。';
+        $messageType = 'error';
+    } else {
+        $uid = (int)($_POST['user_id'] ?? 0);
+        if ($uid > 0 && resetUserTotp($uid)) {
+            appLog("管理员重置用户二次认证: 用户ID={$uid}");
+            $message = '该用户的二次认证已重置，用户下次登录（开启状态下）需重新绑定。';
+            $messageType = 'success';
+        } else {
+            $message = '重置失败，用户不存在或未绑定。';
+            $messageType = 'error';
         }
     }
 }
@@ -286,6 +344,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $newRegisterMode = $_POST['register_mode'] ?? 'open';
         $newPwdMinLen = max(4, min(20, (int)($_POST['password_min_length'] ?? 8)));
         $newRatelimit = isset($_POST['login_ratelimit_enabled']) ? '1' : '0';
+        $newCaptcha = isset($_POST['captcha_enabled']) ? '1' : '0';
         $newMaxAttempts = max(3, min(20, (int)($_POST['login_max_attempts'] ?? 5)));
         $newLockoutMin = max(5, min(60, (int)($_POST['login_lockout_minutes'] ?? 15)));
 
@@ -299,16 +358,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         setSetting('login_ratelimit_enabled', $newRatelimit);
         setSetting('login_max_attempts', (string)$newMaxAttempts);
         setSetting('login_lockout_minutes', (string)$newLockoutMin);
+        setSetting('captcha_enabled', $newCaptcha);
 
         $message = '安全设置已保存（自定义模式）。';
         $messageType = 'success';
-        appLog("管理员修改安全设置: 注册模式={$newRegisterMode}, 密码最短={$newPwdMinLen}, 限速={$newRatelimit}");
+        appLog("管理员修改安全设置: 注册模式={$newRegisterMode}, 密码最短={$newPwdMinLen}, 限速={$newRatelimit}, 验证码={$newCaptcha}");
 
         // 刷新变量
         $deployMode = 'custom';
         $registerMode = $newRegisterMode;
         $passwordMinLength = $newPwdMinLen;
         $ratelimitEnabled = $newRatelimit;
+        $captchaEnabled = ($newCaptcha === '1');
         $loginMaxAttempts = (string)$newMaxAttempts;
         $loginLockoutMinutes = (string)$newLockoutMin;
     }
@@ -473,7 +534,7 @@ $imageData = listUploadedImages();
 $imageStats = getUploadStats();
 
 // 获取所有普通用户
-$stmt = $db->prepare("SELECT id, username, created_at FROM users WHERE is_admin = 0 ORDER BY created_at DESC");
+$stmt = $db->prepare("SELECT id, username, created_at, totp_enabled FROM users WHERE is_admin = 0 ORDER BY created_at DESC");
 $stmt->execute();
 $users = $stmt->fetchAll();
 
@@ -527,8 +588,11 @@ $deployMode = getDeployMode();
 $registerMode = getRegisterMode();
 $passwordMinLength = getPasswordMinLength();
 $ratelimitEnabled = getSetting('login_ratelimit_enabled', '0');
+$captchaEnabled = getSetting('captcha_enabled', '0') === '1';
 $loginMaxAttempts = getSetting('login_max_attempts', '5');
 $loginLockoutMinutes = getSetting('login_lockout_minutes', '15');
+$require2fa = getSetting('require_2fa', '0') === '1';
+$shareTokens = listShareTokens();
 $inviteCodes = getInviteCodes();
 $shieldColor = $deployMode === 'internet' ? '#cf1322' : ($deployMode === 'intranet' ? '#389e0d' : '#fa8c16');
 
@@ -561,7 +625,8 @@ foreach ($backupFiles as $f) { $totalBackupSize += $f['size']; }
 $pageTitleSuffix = '管理后台';
 require_once __DIR__ . '/header.php';
 ?>
-    <link rel="stylesheet" href="assets/css/admin.css?v=1.21.0">
+    <link rel="stylesheet" href="assets/css/admin.css?v=1.33.0">
+    <meta name="csrf-token" content="<?= htmlspecialchars($csrf_token) ?>">
 
 </head>
 <body>
@@ -576,6 +641,10 @@ require_once __DIR__ . '/header.php';
         <button class="btn-sm" onclick="openPwdModal()" style="cursor:pointer;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             修改密码
+        </button>
+        <button class="btn-sm" onclick="open2faModal()" style="cursor:pointer;" title="为管理员账号单独开启双重认证">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            双重认证
         </button>
         <a href="logout.php" class="btn-sm">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -644,6 +713,41 @@ require_once __DIR__ . '/header.php';
     </div>
     <?php endif; ?>
 
+    <?php if (!empty($_SESSION['pending_recovery_codes'])): ?>
+    <div class="invite-code-box" style="background:#fff1f0;border-color:#ffa39e;">
+        <div class="invite-code-label" style="color:#cf1322;">二次认证绑定成功！请立即保存以下恢复码（每个只能使用一次，用于手机丢失时登录）：</div>
+        <div style="font-family:monospace;font-size:14px;line-height:2;display:grid;grid-template-columns:repeat(5,1fr);gap:4px 12px;margin:10px 0;">
+            <?php foreach ($_SESSION['pending_recovery_codes'] as $rc): ?>
+                <div style="background:#fff;border:1px solid #ffd6d6;border-radius:6px;padding:6px 10px;text-align:center;letter-spacing:1px;"><?= htmlspecialchars($rc) ?></div>
+            <?php endforeach; ?>
+        </div>
+        <div class="invite-code-row">
+            <button class="invite-copy-btn" onclick="copyRecoveryCodes()">📋 复制全部</button>
+            <button class="invite-copy-btn" style="background:#f5222d;color:#fff;border-color:#f5222d;" onclick="fetch('?ack_recovery_codes=1').then(function(){location.reload();})">我已保存，不再显示</button>
+        </div>
+        <div style="font-size:12px;color:#999;margin-top:8px;">提示：请截图或用密码管理器保存，本提示仅显示一次。</div>
+    </div>
+    <script>
+    function copyRecoveryCodes() {
+        var codes = [];
+        <?php foreach ($_SESSION['pending_recovery_codes'] as $rc): ?>codes.push('<?= $rc ?>');
+        <?php endforeach; ?>
+        var text = codes.join('\n');
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(function(){ alert('恢复码已复制'); }, function(){ fallbackCopy(text); });
+        } else {
+            fallbackCopy(text);
+        }
+        function fallbackCopy(t) {
+            var ta = document.createElement('textarea');
+            ta.value = t; document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); document.body.removeChild(ta);
+            alert('恢复码已复制');
+        }
+    }
+    </script>
+    <?php endif; ?>
+
     <!-- 统计卡片 -->
     <div class="stats">
         <div class="stat-card">
@@ -694,7 +798,7 @@ require_once __DIR__ . '/header.php';
                         <span style="font-size:18px;">🏠</span>
                         <span>
                             <strong>内网便捷模式</strong>
-                            <small style="display:block;margin-top:2px;">开放注册 · 无登录限速 · 密码最短4位</small>
+                            <small style="display:block;margin-top:2px;">开放注册 · 无登录限速 · 无需验证码 · 密码最短4位</small>
                         </span>
                     </button>
                 </form>
@@ -706,7 +810,7 @@ require_once __DIR__ . '/header.php';
                         <span style="font-size:18px;">🔒</span>
                         <span>
                             <strong>外网安全模式</strong>
-                            <small style="display:block;margin-top:2px;">邀请注册 · 登录限速 · 密码最短8位</small>
+                            <small style="display:block;margin-top:2px;">邀请注册 · 登录限速 · 登录验证码 · 密码最短8位</small>
                         </span>
                     </button>
                 </form>
@@ -735,6 +839,12 @@ require_once __DIR__ . '/header.php';
                             <label style="display:flex;align-items:center;gap:8px;">
                                 <input type="checkbox" name="login_ratelimit_enabled" <?= $ratelimitEnabled ? 'checked' : '' ?> style="width:auto;">
                                 启用登录限速
+                            </label>
+                        </div>
+                        <div class="field">
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;">
+                                <input type="checkbox" name="captcha_enabled" value="1" <?= $captchaEnabled ? 'checked' : '' ?> style="width:auto;margin:0;accent-color:#667eea;">
+                                启用登录验证码（数学题）
                             </label>
                         </div>
                         <div class="field" style="display:flex;gap:12px;">
@@ -835,9 +945,10 @@ require_once __DIR__ . '/header.php';
                         <tr>
                             <th>ID</th>
                             <th>用户名</th>
+                            <th>2FA</th>
                             <th>笔记数</th>
                             <th>注册时间</th>
-                            <th style="width:140px;">操作</th>
+                            <th style="width:260px;">操作</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -845,6 +956,7 @@ require_once __DIR__ . '/header.php';
                         <tr>
                             <td><?= $user['id'] ?></td>
                             <td><?= htmlspecialchars($user['username']) ?></td>
+                            <td><?= !empty($user['totp_enabled']) ? '<span class="log-badge success">已开启</span>' : '<span class="log-badge fail">未开启</span>' ?></td>
                             <td><?= $userNoteCounts[$user['id']] ?? 0 ?> 条</td>
                             <td><?= substr($user['created_at'], 0, 16) ?></td>
                             <td style="white-space:nowrap; width: 160px;">
@@ -856,10 +968,19 @@ require_once __DIR__ . '/header.php';
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                                     生成链接
                                 </button>
+                                <form method="post" style="margin:0;display:inline-block;" onsubmit="return confirm('确定重置该用户的二次认证？用户下次登录（开启状态下）需重新绑定。')">
+                                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                                    <input type="hidden" name="action" value="reset_user_2fa">
+                                    <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
+                                    <button type="submit" class="btn-sm" style="color:#fa8c16;border-color:#ffd591;" title="重置二次认证">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15.36-6.36L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15.36 6.36L3 16"/></svg>
+                                        重置2FA
+                                    </button>
+                                </form>
                             </td>
                         </tr>
                         <tr>
-                            <td colspan="5" style="padding:0;">
+                            <td colspan="6" style="padding:0;">
                                 <div class="reset-form" id="resetForm_<?= $user['id'] ?>">
                                     <form method="post" class="form-inline">
                                         <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
@@ -957,6 +1078,105 @@ require_once __DIR__ . '/header.php';
                     <button type="submit" class="btn-primary" style="align-self:flex-start;">保存设置</button>
                 </form>
             </div>
+        </div>
+    </div>
+
+    <!-- 二次认证设置 -->
+    <div class="card">
+        <div class="card-header" style="justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#cf1322" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                二次认证（2FA）
+                <?php if ($require2fa): ?>
+                    <span class="log-badge success">已开启</span>
+                <?php else: ?>
+                    <span class="log-badge fail">已关闭</span>
+                <?php endif; ?>
+            </div>
+        </div>
+        <div class="card-body">
+            <form method="post" class="form-compact" style="flex-direction:column;align-items:stretch;gap:10px;">
+                <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                <input type="hidden" name="action" value="save_2fa_settings">
+                <div class="field" style="margin:0;">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;">
+                        <input type="checkbox" name="require_2fa" value="1" <?= $require2fa ? 'checked' : '' ?> style="width:auto;margin:0;accent-color:#cf1322;">
+                        开启二次认证（要求所有账号登录时输入手机动态码）
+                    </label>
+                </div>
+                <div style="font-size:13px;color:#999;line-height:1.8;">
+                    <strong>内网环境可关闭此开关；切换「外网安全模式」自动开启，「内网便捷模式」自动关闭。</strong><br>
+                    开启后：未绑定用户首次登录会被引导绑定 Authenticator（兼容 Google / Microsoft / Authy 等）；连续输错 5 次动态码锁定 10 分钟；手机丢失可凭恢复码登录；管理员可在用户管理中重置其 2FA。
+                </div>
+                <button type="submit" class="btn-primary" style="align-self:flex-start;">保存设置</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 分享链接管理 -->
+    <div class="card">
+        <div class="card-header" style="justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#13c2c2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                分享链接管理
+                <span style="font-size:12px;color:#999;font-weight:400;">（<?= count($shareTokens) ?> 条）</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div style="background:#f6ffed;border:1px solid #b7eb8f;border-radius:8px;padding:10px 14px;font-size:12px;color:#389e0d;margin-bottom:16px;line-height:1.7;">
+                分享链接由各账号在记事本页面的「分享」中自行生成，管理员不代建；此处仅展示全局列表，可在此吊销任一链接（吊销后立即失效）。
+            </div>
+            <?php if (empty($shareTokens)): ?>
+                <div style="padding:16px;text-align:center;color:#bbb;font-size:13px;">暂无分享链接</div>
+            <?php else: ?>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead>
+                    <tr style="background:#fafbff;color:#666;font-size:12px;">
+                        <th style="padding:8px 12px;text-align:left;">用户</th>
+                        <th style="padding:8px 12px;text-align:left;">分享的笔记</th>
+                        <th style="padding:8px 12px;text-align:left;">备注</th>
+                        <th style="padding:8px 12px;text-align:left;">创建时间</th>
+                        <th style="padding:8px 12px;text-align:left;">到期时间</th>
+                        <th style="padding:8px 12px;text-align:left;">最后访问</th>
+                        <th style="padding:8px 12px;text-align:left;">状态</th>
+                        <th style="padding:8px 12px;text-align:left;">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($shareTokens as $st): ?>
+                    <tr style="border-bottom:1px solid #f5f5f5;">
+                        <td style="padding:8px 12px;"><?= htmlspecialchars($st['username'] ?? '用户#'.$st['owner_id']) ?></td>
+                        <td style="padding:8px 12px;color:#666;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<?= htmlspecialchars($st['note_title'] ?? '') ?>"><?= !empty($st['note_title']) ? htmlspecialchars($st['note_title']) : '<span style="color:#bbb;">旧版全量/已删除</span>' ?></td>
+                        <td style="padding:8px 12px;color:#666;"><?= htmlspecialchars($st['label'] !== '' ? $st['label'] : '—') ?></td>
+                        <td style="padding:8px 12px;color:#999;"><?= substr($st['created_at'], 0, 16) ?></td>
+                        <td style="padding:8px 12px;color:#999;"><?= substr($st['expires_at'], 0, 16) ?></td>
+                        <td style="padding:8px 12px;color:#999;"><?= !empty($st['last_used_at']) ? substr($st['last_used_at'], 0, 16) : '—' ?></td>
+                        <td style="padding:8px 12px;">
+                            <?php if ((int)$st['revoked'] === 1): ?>
+                                <span class="log-badge fail">已吊销</span>
+                            <?php elseif (strtotime($st['expires_at']) < time()): ?>
+                                <span class="log-badge fail">已过期</span>
+                            <?php else: ?>
+                                <span class="log-badge success">生效中</span>
+                            <?php endif; ?>
+                        </td>
+                        <td style="padding:8px 12px;">
+                            <?php if ((int)$st['revoked'] === 0): ?>
+                            <form method="post" style="margin:0;display:inline;" onsubmit="return confirm('确定吊销该分享链接？链接将立即失效。')">
+                                <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                                <input type="hidden" name="action" value="revoke_share_link">
+                                <input type="hidden" name="link_id" value="<?= $st['id'] ?>">
+                                <button type="submit" class="btn-sm" style="color:#cf1322;border-color:#ffccc7;font-size:12px;">吊销</button>
+                            </form>
+                            <?php else: ?>
+                                <span style="color:#ccc;">—</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -1344,7 +1564,25 @@ require_once __DIR__ . '/header.php';
     </div>
 </div>
 
-<script src="assets/js/admin.js?v=1.21.0"></script>
+<!-- 双重认证模态框（仅针对管理员账号） -->
+<div class="modal-overlay" id="fa2Modal">
+    <div class="modal-box fa2-modal-box">
+        <h3>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            双重认证（2FA）
+            <span class="fa2-badge fa2-off" id="adminFa2Status">检测中…</span>
+        </h3>
+        <p class="fa2-hint">仅对管理员账号生效，普通账号不受影响。开启后登录后台需输入密码和手机验证码。</p>
+        <div id="adminFa2Body">
+            <div style="text-align:center;padding:20px 0;color:#999;">加载中…</div>
+        </div>
+        <div class="modal-actions">
+            <button type="button" onclick="close2faModal()">关闭</button>
+        </div>
+    </div>
+</div>
+
+<script src="assets/js/admin.js?v=1.33.0"></script>
 
 </body>
 </html>

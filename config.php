@@ -4,7 +4,7 @@
  */
 
 // 应用版本
-$config['app_version'] = '1.30.0';
+$config['app_version'] = '1.34.1';
 
 // 应用名称
 $config['app_name'] = '轻记';

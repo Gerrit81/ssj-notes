@@ -13,7 +13,7 @@ if (!isLoggedIn()) {
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 $method = $_SERVER['REQUEST_METHOD'];
-$postActions = ['save', 'delete', 'restore', 'permanent_delete', 'emptyTrash', 'setSkin', 'setFont', 'setAutoSave', 'togglePin', 'changePassword', 'uploadImage', 'deleteImage'];
+$postActions = ['save', 'delete', 'restore', 'permanent_delete', 'emptyTrash', 'setSkin', 'setFont', 'setAutoSave', 'togglePin', 'changePassword', 'uploadImage', 'deleteImage', 'setup2fa', 'enable2fa', 'disable2fa'];
 
 if (in_array($action, $postActions) && $method === 'POST') {
     if (!checkCSRF()) {
@@ -75,6 +75,18 @@ switch ($action) {
         break;
     case 'changePassword':
         handleChangePassword();
+        break;
+    case 'get2faStatus':
+        handleGet2faStatus();
+        break;
+    case 'setup2fa':
+        handleSetup2fa();
+        break;
+    case 'enable2fa':
+        handleEnable2fa();
+        break;
+    case 'disable2fa':
+        handleDisable2fa();
         break;
     case 'uploadImage':
         handleUploadImage();
@@ -606,7 +618,8 @@ function handleChangePassword(): void {
     }
 
     $hash = password_hash($newPassword, PASSWORD_DEFAULT);
-    $stmt = $db->prepare("UPDATE users SET password_hash = ? WHERE id = ?");
+    // v1.34.0：用户完成（强制）改密后清除强制改密标记
+    $stmt = $db->prepare("UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?");
     $stmt->execute([$hash, currentUserId()]);
 
     // 记录密码修改日志
@@ -620,6 +633,95 @@ function handleChangePassword(): void {
     appLog("用户 " . currentUsername() . " 自行修改了密码");
 
     jsonResponse(200, ['message' => '密码修改成功。']);
+}
+
+/** 获取当前用户双重认证(2FA)状态 */
+function handleGet2faStatus(): void {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT totp_enabled FROM users WHERE id = ?");
+    $stmt->execute([currentUserId()]);
+    $user = $stmt->fetch();
+    jsonResponse(200, ['enabled' => (int)($user['totp_enabled'] ?? 0) === 1]);
+}
+
+/** 生成 2FA 绑定信息（暂存会话，待用户确认后写入） */
+function handleSetup2fa(): void {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT totp_enabled FROM users WHERE id = ?");
+    $stmt->execute([currentUserId()]);
+    $user = $stmt->fetch();
+    if ($user && (int)$user['totp_enabled'] === 1) {
+        jsonResponse(400, ['error' => '您已开启双重认证，无需重复绑定。']);
+    }
+
+    $secret = generateTotpSecret();
+    $_SESSION['2fa_pending'] = [
+        'secret' => $secret,
+        'recovery_codes' => generateRecoveryCodes(10),
+        'expires' => time() + 600,
+    ];
+    jsonResponse(200, [
+        'secret' => $secret,
+        'otpauth_uri' => generateTotpUri(currentUsername(), $secret),
+    ]);
+}
+
+/** 确认绑定 2FA */
+function handleEnable2fa(): void {
+    $code = trim($_POST['code'] ?? '');
+    if ($code === '') {
+        jsonResponse(400, ['error' => '请输入验证码。']);
+    }
+    $pending = $_SESSION['2fa_pending'] ?? null;
+    if (!$pending || empty($pending['secret']) || (($pending['expires'] ?? 0) < time())) {
+        jsonResponse(400, ['error' => '绑定信息已过期，请重新开始。']);
+    }
+
+    if (!verifyTotp($pending['secret'], $code)) {
+        jsonResponse(403, ['error' => '验证码不正确，请重试。']);
+    }
+
+    $codes = $pending['recovery_codes'];
+    $db = getDB();
+    $stmt = $db->prepare("UPDATE users SET totp_secret = ?, totp_enabled = 1, totp_recovery_codes = ?, totp_failed_attempts = 0, totp_locked_until = NULL WHERE id = ?");
+    $stmt->execute([
+        $pending['secret'],
+        json_encode(array_map(fn($c) => hash('sha256', $c), $codes)),
+        currentUserId(),
+    ]);
+
+    unset($_SESSION['2fa_pending']);
+    // 恢复码仅展示一次：存入会话，页面刷新后顶部提示
+    $_SESSION['pending_recovery_codes'] = $codes;
+
+    appLog("用户 " . currentUsername() . " 开启了双重认证(2FA)");
+    jsonResponse(200, ['message' => '双重认证已开启。', 'recovery_codes' => $codes]);
+}
+
+/** 关闭 2FA */
+function handleDisable2fa(): void {
+    $code = trim($_POST['code'] ?? '');
+    if ($code === '') {
+        jsonResponse(400, ['error' => '请输入验证码。']);
+    }
+
+    $db = getDB();
+    $stmt = $db->prepare("SELECT totp_secret, totp_enabled FROM users WHERE id = ?");
+    $stmt->execute([currentUserId()]);
+    $user = $stmt->fetch();
+
+    if (!$user || (int)$user['totp_enabled'] !== 1) {
+        jsonResponse(400, ['error' => '您尚未开启双重认证。']);
+    }
+    if (!verifyTotp($user['totp_secret'], $code)) {
+        jsonResponse(403, ['error' => '验证码不正确，请重试。']);
+    }
+
+    $stmt = $db->prepare("UPDATE users SET totp_secret = NULL, totp_enabled = 0, totp_recovery_codes = NULL, totp_failed_attempts = 0, totp_locked_until = NULL WHERE id = ?");
+    $stmt->execute([currentUserId()]);
+
+    appLog("用户 " . currentUsername() . " 关闭了双重认证(2FA)");
+    jsonResponse(200, ['message' => '双重认证已关闭。']);
 }
 
 // --- 工具函数 ---

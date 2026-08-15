@@ -151,6 +151,7 @@ function initDatabase(): void {
         font_family TEXT NOT NULL DEFAULT 'default',
         font_size INTEGER NOT NULL DEFAULT 15,
         auto_save_interval INTEGER NOT NULL DEFAULT 3,
+        must_change_password INTEGER NOT NULL DEFAULT 0,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )");
 
@@ -172,6 +173,24 @@ function initDatabase(): void {
     } catch (Exception $e) {}
     try {
         $db->exec("ALTER TABLE users ADD COLUMN session_token TEXT DEFAULT NULL");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE users ADD COLUMN totp_secret TEXT DEFAULT NULL");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE users ADD COLUMN totp_recovery_codes TEXT DEFAULT NULL");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE users ADD COLUMN totp_failed_attempts INTEGER NOT NULL DEFAULT 0");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE users ADD COLUMN totp_locked_until DATETIME DEFAULT NULL");
+    } catch (Exception $e) {}
+    try {
+        $db->exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0");
     } catch (Exception $e) {}
 
     // 笔记表
@@ -257,6 +276,23 @@ function initDatabase(): void {
         $db->exec("ALTER TABLE reset_links ADD COLUMN created_by INTEGER NOT NULL DEFAULT 1");
     } catch (Exception $e) {}
 
+    // 分享链接表（v1.32.0 新增，v1.33.0 起由各账号自助生成的免登录只读访问令牌）
+    $db->exec("CREATE TABLE IF NOT EXISTS share_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token_hash TEXT NOT NULL UNIQUE,
+        owner_id INTEGER NOT NULL,
+        note_id INTEGER DEFAULT NULL,
+        label TEXT NOT NULL DEFAULT '',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME DEFAULT NULL,
+        last_used_at DATETIME DEFAULT NULL,
+        revoked INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (owner_id) REFERENCES users(id)
+    )");
+    try {
+        $db->exec("ALTER TABLE share_tokens ADD COLUMN note_id INTEGER DEFAULT NULL");
+    } catch (Exception $e) {}
+
     // 初始化默认设置
     $defaults = [
         'recycle_bin_days' => '30',
@@ -266,7 +302,9 @@ function initDatabase(): void {
         'password_min_length' => '4',          // 密码最小长度
         'login_ratelimit_enabled' => '0',      // 登录限速开关
         'login_max_attempts' => '5',           // 最大失败次数
+        'captcha_enabled' => '0',              // 登录验证码开关
         'login_lockout_minutes' => '15',       // 锁定分钟数
+        'require_2fa' => '0',                   // 二次认证全局开关（0=关闭 1=开启）
     ];
     foreach ($defaults as $k => $v) {
         $stmt = $db->prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
@@ -786,3 +824,246 @@ function getBackupInfo(): array {
 }
 // 自动备份检查
 autoBackupDaily();
+
+// --- 二次认证（TOTP，RFC 6238） ---
+
+/** 是否全局要求二次认证 */
+function is2faRequired(): bool {
+    return getSetting('require_2fa', '0') === '1';
+}
+
+/** Base32 编码 */
+function base32Encode(string $data): string {
+    $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    $binary = '';
+    foreach (str_split($data) as $char) {
+        $binary .= str_pad(decbin(ord($char)), 8, '0', STR_PAD_LEFT);
+    }
+    $result = '';
+    for ($i = 0; $i < strlen($binary); $i += 5) {
+        $chunk = substr($binary, $i, 5);
+        $chunk = str_pad($chunk, 5, '0', STR_PAD_RIGHT);
+        $result .= $alphabet[bindec($chunk)];
+    }
+    return $result;
+}
+
+/** Base32 解码 */
+function base32Decode(string $data): string {
+    $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    $data = strtoupper(preg_replace('/[^A-Za-z2-7]/', '', $data));
+    $binary = '';
+    foreach (str_split($data) as $char) {
+        $pos = strpos($alphabet, $char);
+        if ($pos === false) continue;
+        $binary .= str_pad(decbin($pos), 5, '0', STR_PAD_LEFT);
+    }
+    $result = '';
+    for ($i = 0; $i + 8 <= strlen($binary); $i += 8) {
+        $result .= chr(bindec(substr($binary, $i, 8)));
+    }
+    return $result;
+}
+
+/** 生成 2FA 密钥（20 字节 → 32 位 Base32） */
+function generateTotpSecret(): string {
+    return base32Encode(random_bytes(20));
+}
+
+/** 计算指定时间片的 TOTP 动态码（6 位） */
+function totpCode(string $secret, int $timeSlice = 0): string {
+    $key = base32Decode($secret);
+    if ($timeSlice === 0) {
+        $timeSlice = intdiv(time(), 30);
+    }
+    $data = pack('N*', 0) . pack('N', $timeSlice);
+    $hash = hash_hmac('sha1', $data, $key, true);
+    $offset = ord($hash[strlen($hash) - 1]) & 0x0F;
+    $code = ((ord($hash[$offset]) & 0x7F) << 24)
+          | ((ord($hash[$offset + 1]) & 0xFF) << 16)
+          | ((ord($hash[$offset + 2]) & 0xFF) << 8)
+          |  (ord($hash[$offset + 3]) & 0xFF);
+    return str_pad((string)($code % 1000000), 6, '0', STR_PAD_LEFT);
+}
+
+/** 校验动态码（允许前后 1 个时间窗，即 ±30 秒） */
+function verifyTotp(string $secret, string $code): bool {
+    $code = trim($code);
+    if (!preg_match('/^\d{6}$/', $code)) {
+        return false;
+    }
+    $current = intdiv(time(), 30);
+    for ($i = -1; $i <= 1; $i++) {
+        if (hash_equals(totpCode($secret, $current + $i), $code)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** 生成 otpauth URI（供 Authenticator 手动输入或扫码） */
+function generateTotpUri(string $username, string $secret): string {
+    global $config;
+    $issuer = $config['app_name'] ?? '轻记';
+    return 'otpauth://totp/' . rawurlencode($issuer) . ':' . rawurlencode($username)
+        . '?secret=' . $secret
+        . '&issuer=' . rawurlencode($issuer)
+        . '&algorithm=SHA1&digits=6&period=30';
+}
+
+/** 生成恢复码（10 个，每个 8 位） */
+function generateRecoveryCodes(int $count = 10): array {
+    $codes = [];
+    for ($i = 0; $i < $count; $i++) {
+        $codes[] = strtoupper(substr(bin2hex(random_bytes(5)), 0, 8));
+    }
+    return $codes;
+}
+
+/** 校验并消费一个恢复码（成功则删除该码，每个只能用一次） */
+function verifyRecoveryCode(int $userId, string $code): bool {
+    $code = strtoupper(trim($code));
+    $db = getDB();
+    $stmt = $db->prepare("SELECT totp_recovery_codes FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $row = $stmt->fetch();
+    if (!$row || empty($row['totp_recovery_codes'])) {
+        return false;
+    }
+    $codes = json_decode($row['totp_recovery_codes'], true) ?: [];
+    foreach ($codes as $i => $stored) {
+        if (hash_equals($stored, hash('sha256', $code))) {
+            unset($codes[$i]);
+            $stmt = $db->prepare("UPDATE users SET totp_recovery_codes = ? WHERE id = ?");
+            $stmt->execute([json_encode(array_values($codes)), $userId]);
+            return true;
+        }
+    }
+    return false;
+}
+
+/** 2FA 是否处于锁定状态 */
+function isTotpLocked(int $userId): bool {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT totp_locked_until FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $row = $stmt->fetch();
+    if (!$row || empty($row['totp_locked_until'])) {
+        return false;
+    }
+    return strtotime($row['totp_locked_until']) > time();
+}
+
+/** 记录一次 2FA 失败，连续 5 次锁定 10 分钟 */
+function recordTotpFailure(int $userId): void {
+    $db = getDB();
+    $stmt = $db->prepare("UPDATE users SET totp_failed_attempts = totp_failed_attempts + 1 WHERE id = ?");
+    $stmt->execute([$userId]);
+    $stmt = $db->prepare("SELECT totp_failed_attempts FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $row = $stmt->fetch();
+    $attempts = (int)($row['totp_failed_attempts'] ?? 0);
+    if ($attempts >= 5) {
+        $stmt = $db->prepare("UPDATE users SET totp_failed_attempts = 0, totp_locked_until = ? WHERE id = ?");
+        $stmt->execute([date('Y-m-d H:i:s', time() + 600), $userId]);
+    }
+}
+
+/** 2FA 验证成功后重置失败计数 */
+function resetTotpFailures(int $userId): void {
+    $db = getDB();
+    $stmt = $db->prepare("UPDATE users SET totp_failed_attempts = 0, totp_locked_until = NULL WHERE id = ?");
+    $stmt->execute([$userId]);
+}
+
+/** 获取用户 2FA 绑定状态 */
+function getTotpStatus(int $userId): array {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT totp_enabled, totp_secret FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $row = $stmt->fetch() ?: [];
+    return [
+        'enabled' => (bool)($row['totp_enabled'] ?? 0),
+        'secret'  => $row['totp_secret'] ?? null,
+    ];
+}
+
+/** 重置用户的 2FA 绑定（管理员操作） */
+function resetUserTotp(int $userId): bool {
+    $db = getDB();
+    $stmt = $db->prepare("UPDATE users SET totp_secret = NULL, totp_enabled = 0, totp_recovery_codes = NULL, totp_failed_attempts = 0, totp_locked_until = NULL WHERE id = ?");
+    $stmt->execute([$userId]);
+    return $stmt->rowCount() > 0;
+}
+
+// --- 分享链接 ---
+
+/**
+ * 创建分享链接
+ * @param int $ownerId 笔记归属用户
+ * @param string $label 备注
+ * @param int $ttlHours 有效小时数
+ * @param int|null $noteId 被分享的单篇笔记 ID（v1.34.0 起必填，仅支持单篇分享）
+ * @return string 分享令牌；返回空字符串表示笔记无效
+ */
+function createShareToken(int $ownerId, string $label, int $ttlHours, ?int $noteId = null): string {
+    // v1.34.0：分享必须绑定单篇笔记，校验笔记存在且属于当前用户、未删除
+    if ($noteId !== null) {
+        $dbx = getDB();
+        $stmtx = $dbx->prepare("SELECT id FROM notes WHERE id = ? AND user_id = ? AND deleted = 0");
+        $stmtx->execute([$noteId, $ownerId]);
+        if (!$stmtx->fetch()) {
+            return '';
+        }
+    }
+    $token = bin2hex(random_bytes(32));
+    $hash = hash('sha256', $token);
+    $expiresAt = date('Y-m-d H:i:s', time() + $ttlHours * 3600);
+    $db = getDB();
+    $stmt = $db->prepare("INSERT INTO share_tokens (token_hash, owner_id, note_id, label, expires_at) VALUES (?, ?, ?, ?, ?)");
+    $stmt->execute([$hash, $ownerId, $noteId, $label, $expiresAt]);
+    return $token;
+}
+
+/** 校验分享链接并返回信息（未吊销、未过期），同时更新访问时间 */
+function getShareTokenInfo(string $token): ?array {
+    $hash = hash('sha256', $token);
+    $db = getDB();
+    $stmt = $db->prepare("SELECT st.*, u.username FROM share_tokens st LEFT JOIN users u ON st.owner_id = u.id WHERE st.token_hash = ?");
+    $stmt->execute([$hash]);
+    $row = $stmt->fetch();
+    if (!$row) return null;
+    if ((int)$row['revoked'] === 1) return null;
+    if (strtotime($row['expires_at']) < time()) return null;
+    $stmt = $db->prepare("UPDATE share_tokens SET last_used_at = ? WHERE id = ?");
+    $stmt->execute([date('Y-m-d H:i:s'), (int)$row['id']]);
+    return $row;
+}
+
+/** 吊销分享链接 */
+function revokeShareToken(int $id): bool {
+    $db = getDB();
+    $stmt = $db->prepare("UPDATE share_tokens SET revoked = 1 WHERE id = ?");
+    $stmt->execute([$id]);
+    return $stmt->rowCount() > 0;
+}
+
+/** 分享链接列表（含用户名与分享笔记标题） */
+function listShareTokens(): array {
+    $db = getDB();
+    $stmt = $db->query("SELECT st.*, u.username, n.title AS note_title FROM share_tokens st LEFT JOIN users u ON st.owner_id = u.id LEFT JOIN notes n ON st.note_id = n.id AND n.deleted = 0 ORDER BY st.created_at DESC");
+    return $stmt->fetchAll();
+}
+
+/** 指定用户创建的分享链接列表（用户自助管理用，含分享笔记标题） */
+function listShareTokensByOwner(int $ownerId): array {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT st.*, n.title AS note_title FROM share_tokens st LEFT JOIN notes n ON st.note_id = n.id AND n.deleted = 0 WHERE st.owner_id = ? ORDER BY st.created_at DESC");
+    $stmt->execute([$ownerId]);
+    return $stmt->fetchAll();
+}
+
+/** 恢复码确认标记处理（所有页面通用） */
+if (isLoggedIn() && isset($_GET['ack_recovery_codes'])) {
+    unset($_SESSION['pending_recovery_codes']);
+}

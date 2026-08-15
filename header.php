@@ -13,6 +13,19 @@ if (basename($_SERVER['SCRIPT_FILENAME'] ?? '') === 'header.php') {
 if (!isset($pageTitleSuffix)) {
     $pageTitleSuffix = '';
 }
+
+// --- HTTP 安全头 ---
+// 防点击劫持
+header('X-Frame-Options: SAMEORIGIN');
+// 防 MIME 类型嗅探
+header('X-Content-Type-Options: nosniff');
+// 控制 Referer 信息泄漏
+header('Referrer-Policy: strict-origin-when-cross-origin');
+// 限制浏览器特性权限
+header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+// 内容安全策略（CSP）— 阻止外部脚本注入
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src *; frame-src *; base-uri 'self'; form-action 'self'");
+
 ?><!DOCTYPE html>
 <html lang="zh-CN">
 <head>

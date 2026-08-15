@@ -8,7 +8,7 @@ require_once __DIR__ . '/auth.php';
 $pageTitleSuffix = '登录';
 require_once __DIR__ . '/header.php';
 ?>
-    <link rel="stylesheet" href="assets/css/login.css?v=1.27.0">
+    <link rel="stylesheet" href="assets/css/login.css?v=1.33.0">
 
 </head>
 <body>
@@ -32,7 +32,35 @@ require_once __DIR__ . '/header.php';
         <?php if ($success): ?><div class="message success"><?= htmlspecialchars($success) ?></div><?php endif; ?>
         <?php if ($notice): ?><div class="message info"><?= htmlspecialchars($notice) ?></div><?php endif; ?>
         <?php if ($tokenError): ?><div class="message error"><?= htmlspecialchars($tokenError) ?></div><?php endif; ?>
-        <?php if ($mode === 'login'): ?>
+        <?php if ($mode === 'login' && isset($_GET['step']) && $_GET['step'] === '2fa'): ?>
+            <div class="message info">已通过密码验证，请输入手机上的动态码完成二次认证。</div>
+            <form method="post" action="index.php?step=2fa">
+                <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                <input type="hidden" name="action" value="verify_2fa">
+                <div class="form-group"><label for="totp_code">动态码</label><input type="text" id="totp_code" name="totp_code" autocomplete="off" required autofocus placeholder="6 位数字动态码" inputmode="numeric" maxlength="8"></div>
+                <button type="submit" class="btn">验 证</button>
+            </form>
+            <p style="font-size:12px;color:#a5a5c0;margin-top:12px;line-height:1.6;">手机不可用时可输入绑定时的恢复码（每个只能用一次）。连续输错 5 次将锁定 10 分钟。</p>
+        <?php elseif ($mode === 'login' && isset($_GET['step']) && $_GET['step'] === 'bind2fa'): ?>
+            <?php if (empty($_SESSION['2fa_bind'])): ?>
+                <div class="message error">绑定会话已失效，请重新登录。</div>
+            <?php else: $bind = $_SESSION['2fa_bind']; ?>
+                <div class="message info">系统已开启二次认证，首次登录请完成绑定。</div>
+                <div style="background:rgba(255,255,255,0.06);border:1px dashed rgba(255,255,255,0.18);border-radius:10px;padding:14px;margin-bottom:14px;">
+                    <div style="font-size:12px;color:#a5a5c0;margin-bottom:6px;">账号：<strong style="color:#fff;"><?= htmlspecialchars($bind['username']) ?></strong></div>
+                    <div style="font-size:12px;color:#a5a5c0;margin-bottom:4px;">1. 打开手机 Authenticator 应用，选择「添加账户」→「手动输入密钥」：</div>
+                    <div style="font-family:monospace;font-size:15px;color:#a5f3a5;letter-spacing:2px;background:rgba(0,0,0,0.25);border-radius:6px;padding:10px;margin:8px 0;word-break:break-all;"><?= htmlspecialchars($bind['secret']) ?></div>
+                    <div style="font-size:12px;color:#a5a5c0;margin-bottom:4px;">2. 或手动输入以下 otpauth URI（部分应用支持扫码）：</div>
+                    <div style="font-family:monospace;font-size:11px;color:#93c5fd;background:rgba(0,0,0,0.25);border-radius:6px;padding:8px;word-break:break-all;"><?= htmlspecialchars(generateTotpUri($bind['username'], $bind['secret'])) ?></div>
+                </div>
+                <form method="post" action="index.php?step=bind2fa">
+                    <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                    <input type="hidden" name="action" value="bind_2fa">
+                    <div class="form-group"><label for="bind_totp_code">输入应用生成的 6 位动态码完成绑定</label><input type="text" id="bind_totp_code" name="totp_code" autocomplete="off" required autofocus placeholder="6 位数字动态码" inputmode="numeric" maxlength="6"></div>
+                    <button type="submit" class="btn">完成绑定</button>
+                </form>
+            <?php endif; ?>
+        <?php elseif ($mode === 'login'): ?>
             <form method="post">
                 <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
                 <input type="hidden" name="action" value="login">
@@ -42,6 +70,15 @@ require_once __DIR__ . '/header.php';
                     <input type="checkbox" id="keep_login" name="keep_login" value="1" style="width:auto;margin:0;accent-color:#667eea;">
                     <label for="keep_login" style="margin:0;cursor:pointer;">保持登录（注意安全，及时退出）</label>
                 </div>
+                <?php if ($captchaEnabled): ?>
+                <div class="form-group">
+                    <label for="captcha">验证码：<?= htmlspecialchars($captchaQuestion) ?></label>
+                    <div class="captcha-row">
+                        <input type="text" id="captcha" name="captcha" autocomplete="off" required placeholder="请输入计算结果" inputmode="numeric" maxlength="4" style="flex:1;">
+                        <button type="button" class="captcha-refresh-btn" onclick="refreshCaptcha()" title="换一个验证码">换一个</button>
+                    </div>
+                </div>
+                <?php endif; ?>
                 <button type="submit" class="btn">登 录</button>
             </form>
         <?php elseif ($mode === 'forgot'): ?>
@@ -99,5 +136,19 @@ require_once __DIR__ . '/header.php';
     </div>
     <div class="footer"><a href="admin/changelog.php" target="_blank">v<?= getVersion() ?></a></div>
 </div>
+<?php if ($captchaEnabled): ?>
+<script>
+function refreshCaptcha() {
+    fetch('?refresh_captcha=1')
+        .then(r => r.json())
+        .then(d => {
+            var label = document.querySelector('label[for="captcha"]');
+            label.textContent = '验证码：' + d.question;
+            document.getElementById('captcha').value = '';
+            document.getElementById('captcha').focus();
+        });
+}
+</script>
+<?php endif; ?>
 </body>
 </html>

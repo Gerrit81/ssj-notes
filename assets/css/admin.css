@@ -280,6 +280,33 @@
         .modal-actions button { padding:7px 18px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid #d9d9d9;background:#fff; }
         .modal-actions .btn-confirm { background:#667eea;color:#fff;border-color:#667eea; }
 
+        /* 双重认证（2FA） */
+        .fa2-modal-box { width: 440px; }
+        .fa2-hint { font-size: 12px; color: #999; line-height: 1.8; margin: -8px 0 12px; }
+        .fa2-badge { display: inline-block; margin-left: auto; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: normal; }
+        .fa2-on { background: #f6ffed; color: #389e0d; border: 1px solid #b7eb8f; }
+        .fa2-off { background: #f5f5f5; color: #999; border: 1px solid #e8e8e8; }
+        .fa2-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .fa2-row:last-child { margin-bottom: 0; }
+        .fa2-desc { font-size: 13px; color: #666; line-height: 1.8; }
+        .fa2-tip { font-size: 13px; color: #666; background: #f8f9ff; border: 1px solid #e0e4f5; border-radius: 8px; padding: 10px 12px; line-height: 1.8; margin-bottom: 12px; }
+        .fa2-tip.fa2-warn { background: #fffbe6; border-color: #ffe58f; color: #ad6800; }
+        .fa2-qr-wrap { text-align: center; margin: 4px 0 10px; }
+        .fa2-qr { width: 170px; height: 170px; border: 1px solid #eee; border-radius: 8px; }
+        .fa2-qr-fallback { font-size: 12px; color: #999; padding: 30px 0; }
+        .fa2-label { flex-shrink: 0; font-size: 13px; color: #666; width: 48px; }
+        .fa2-secret { flex: 1; font-family: Consolas, 'Courier New', monospace; font-size: 12px; background: #fafafa; border: 1px solid #eee; border-radius: 6px; padding: 7px 10px; color: #555; word-break: break-all; }
+        .fa2-code { flex: 1; padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; letter-spacing: 4px; text-align: center; }
+        .fa2-code:focus { border-color: #667eea; outline: none; box-shadow: 0 0 0 2px rgba(102,126,234,0.15); }
+        .fa2-actions { justify-content: flex-end; margin-top: 14px; }
+        .fa2-actions button { flex: 1; padding: 10px; border-radius: 6px; border: none; font-size: 14px; font-weight: 500; cursor: pointer; transition: opacity 0.2s; }
+        .fa2-actions button:hover { opacity: 0.9; }
+        .fa2-actions .btn-confirm { background: #667eea; color: #fff; }
+        .fa2-actions .fa2-danger { background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; }
+        .fa2-actions .btn-sm { background: #fff; color: #666; border: 1px solid #d9d9d9; }
+        .fa2-recovery { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 10px 0 14px; }
+        .fa2-rc { display: inline-block; font-family: Consolas, 'Courier New', monospace; font-size: 13px; background: #fafafa; border: 1px solid #eee; border-radius: 6px; padding: 6px 10px; color: #555; }
+
         /* 响应式：小屏变单列 */
         @media (max-width: 768px) {
             .two-col { grid-template-columns: 1fr; }

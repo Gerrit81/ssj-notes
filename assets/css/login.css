@@ -49,6 +49,14 @@
             box-shadow: 0 0 0 4px rgba(99,102,241,0.1);
         }
         .form-group input::placeholder { color: #c4c4d8; }
+        .captcha-row { display: flex; gap: 8px; }
+        .captcha-refresh-btn {
+            white-space: nowrap; padding: 10px 14px;
+            border: 1px solid rgba(0,0,0,0.08); border-radius: 12px;
+            font-size: 13px; cursor: pointer; color: #667eea;
+            background: rgba(255,255,255,0.6); transition: all 0.2s;
+        }
+        .captcha-refresh-btn:hover { background: rgba(99,102,241,0.1); border-color: #6366f1; }
         .btn {
             width: 100%; padding: 13px; border: none; border-radius: 12px;
             font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.25s;
