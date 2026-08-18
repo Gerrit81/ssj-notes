@@ -153,9 +153,20 @@ function renderShareView(string $token): void {
         </div>
         <div class="share-main">
             <div class="share-content">
-                <h1 class="share-content-title"><?= htmlspecialchars($currentNote['title']) ?></h1>
+                <?php
+                // v1.35.0：标题/正文加密存储，分享视图需解密后再渲染
+                $shareTitle = (string)decryptData($currentNote['title']);
+                $shareBody = (string)decryptData($currentNote['content']);
+                // 图片/PDF 改为 file.php 鉴权代理访问，并附带分享令牌
+                $shareBody = preg_replace(
+                    '/(?<!file\.php\?f=)data\/uploads\//',
+                    'file.php?f=data/uploads/&share=' . urlencode($token),
+                    $shareBody
+                );
+                ?>
+                <h1 class="share-content-title"><?= htmlspecialchars($shareTitle) ?></h1>
                 <div class="share-content-meta">更新于 <?= substr($currentNote['updated_at'], 0, 16) ?></div>
-                <div class="share-content-body"><?= renderShareMarkdown($currentNote['content']) ?></div>
+                <div class="share-content-body"><?= renderShareMarkdown($shareBody) ?></div>
             </div>
         </div>
         <div class="share-footer">由「轻记」分享 · 仅只读访问</div>

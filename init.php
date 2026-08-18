@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/crypto.php';
 
 // --- 路径规范化 ---
 // 数据目录：未配置则默认程序目录下的 data/
@@ -14,6 +15,10 @@ if (empty($config['data_dir'])) {
 // 数据库路径：未单独指定则使用 data_dir/notes.db
 if (empty($config['db_path'])) {
     $config['db_path'] = $config['data_dir'] . '/notes.db';
+}
+// 密钥路径：未单独指定则使用 data_dir/key/master.key
+if (empty($config['enc_key_path'])) {
+    $config['enc_key_path'] = $config['data_dir'] . '/key/master.key';
 }
 
 // --- 目录初始化 ---
@@ -25,6 +30,27 @@ if (!is_dir($data_dir)) {
         header('Content-Type: text/plain; charset=utf-8');
         die("初始化失败：无法创建数据目录\n路径：{$data_dir}\n原因：" . ($err['message'] ?? '权限不足或父级目录不可写') . "\n\n请手动创建该目录并确保 PHP 进程有写入权限：\n  mkdir -p {$data_dir}\n  chmod 755 {$data_dir}\n  chown www:www {$data_dir}");
     }
+}
+
+// --- 安全自检（v1.35.0） ---
+// 1) openssl 扩展检查（AES-256-GCM 依赖）
+if (!extension_loaded('openssl')) {
+    http_response_code(500);
+    header('Content-Type: text/plain; charset=utf-8');
+    die("初始化失败：缺少 PHP openssl 扩展，无法启用数据加密。\n请在 php.ini 中启用 extension=openssl（phpStudy/宝塔面板一般默认已启用）。");
+}
+// 2) 数据目录是否位于 Web 根目录内（纵深防御提示）
+$webReal = strtolower(str_replace('\\', '/', realpath(__DIR__)));
+$dataReal = strtolower(str_replace('\\', '/', realpath($data_dir)));
+if ($dataReal && $webReal && ($dataReal === $webReal || strpos($dataReal, $webReal . '/') === 0)) {
+    $GLOBALS['SEC_WARNING_DATA_DIR'] = true;
+    @appLog('安全警告：数据目录位于 Web 根目录内，建议将 $config[\'data_dir\'] 配置到 Web 目录之外！');
+}
+// 3) 密钥文件位置检查
+$keyReal = strtolower(str_replace('\\', '/', realpath($config['enc_key_path'])));
+if ($keyReal && $webReal && ($keyReal === $webReal || strpos($keyReal, $webReal . '/') === 0)) {
+    $GLOBALS['SEC_WARNING_KEY'] = true;
+    @appLog('安全警告：加密主密钥文件位于 Web 根目录内，建议将 $config[\'enc_key_path\'] 指向 Web 目录之外！');
 }
 
 // --- 会话启动 ---
@@ -518,16 +544,24 @@ function doBackup(): array {
         mkdir($backupDir, 0755, true);
     }
     $timestamp = date('Ymd_His');
-    $backupFile = $backupDir . '/notes_' . $timestamp . '.db';
-    if (!@copy($dbPath, $backupFile)) {
+    // v1.35.0：备份文件使用 AES-256-GCM 加密存储（.db.enc），防止备份文件泄露后被直接读取
+    $tmpFile = $backupDir . '/.tmp_' . $timestamp . '.db';
+    if (!@copy($dbPath, $tmpFile)) {
         return ['success' => false, 'file' => '', 'size' => 0, 'message' => '备份文件写入失败'];
+    }
+    $backupFile = $backupDir . '/notes_' . $timestamp . '.db.enc';
+    $encResult = encryptFile($tmpFile, $backupFile);
+    @unlink($tmpFile); // 立即删除明文临时副本
+    if (!$encResult[0]) {
+        @unlink($backupFile);
+        return ['success' => false, 'file' => '', 'size' => 0, 'message' => '备份加密失败：' . $encResult[1]];
     }
     $size = filesize($backupFile);
     setSetting('last_backup_time', date('Y-m-d H:i:s'));
-    appLog("数据库备份完成: {$backupFile} (" . round($size/1024, 1) . " KB)");
+    appLog("数据库加密备份完成: {$backupFile} (" . round($size/1024, 1) . " KB)");
 
-    // 清理旧备份，保留最近 30 个
-    $files = glob($backupDir . '/notes_*.db');
+    // 清理旧备份，保留最近 30 个（兼容 .db 与 .db.enc）
+    $files = glob($backupDir . '/notes_*.db*');
     if ($files && count($files) > 30) {
         usort($files, function($a, $b) { return filemtime($a) <=> filemtime($b); });
         $toDelete = array_slice($files, 0, count($files) - 30);
@@ -592,17 +626,22 @@ function doVacuum(): array {
  * @return array{files: list<array{path: string, filename: string, userId: int|string, username: string, size: int, sizeStr: string, time: string, referenced: bool, notes: list<string>}>}
  */
 function listUploadedImages(): array {
-    $uploadDir = __DIR__ . '/data/uploads/';
+    global $config;
+    $uploadDir = $config['data_dir'] . '/uploads/';
     if (!is_dir($uploadDir)) {
         return ['files' => []];
     }
 
-    // 收集所有笔记中引用的图片路径
+    // 收集所有笔记中引用的图片路径（内容已加密，需先解密再匹配）
     $referencedPaths = [];
     $db = getDB();
     $stmt = $db->query("SELECT id, content FROM notes WHERE deleted_at IS NULL");
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        preg_match_all('/\bdata\/uploads\/[^\s()\[\]{}"\'<>]+/i', $row['content'], $matches);
+        $content = decryptData($row['content']);
+        if ($content === null || $content === '') {
+            continue;
+        }
+        preg_match_all('/\bdata\/uploads\/[^\s()\[\]{}"\'<>]+/i', $content, $matches);
         foreach ($matches[0] as $path) {
             // 去掉可能的 Markdown 后缀字符
             $path = rtrim($path, '.,;:!?)');
@@ -624,7 +663,7 @@ function listUploadedImages(): array {
         if (!is_numeric($userId)) continue;
         $userId = (int)$userId;
         $username = $usernameMap[$userId] ?? '未知用户';
-        $images = glob($userDir . '/*.{jpg,jpeg,png,gif,webp,svg,bmp}', GLOB_BRACE);
+        $images = glob($userDir . '/*.{jpg,jpeg,png,gif,webp,bmp}', GLOB_BRACE);
         foreach ($images as $imgPath) {
             $relPath = 'data/uploads/' . $userId . '/' . basename($imgPath);
             $size = filesize($imgPath);
@@ -654,7 +693,8 @@ function listUploadedImages(): array {
  * 获取上传目录总大小
  */
 function getUploadSize(): string {
-    $uploadDir = __DIR__ . '/data/uploads/';
+    global $config;
+    $uploadDir = $config['data_dir'] . '/uploads/';
     $size = getUploadSizeBytes($uploadDir);
     if ($size >= 1024 * 1024) {
         return round($size / 1024 / 1024, 2) . ' MB';
@@ -808,7 +848,8 @@ function getBackupInfo(): array {
     $backupDir = $config['data_dir'] . '/backups';
     $files = [];
     if (is_dir($backupDir)) {
-        $glob = glob($backupDir . '/notes_*.db');
+        // v1.35.0：兼容旧版明文备份(.db)与新版加密备份(.db.enc)
+        $glob = glob($backupDir . '/notes_*.db*');
         if ($glob) {
             foreach ($glob as $file) {
                 $files[] = [
@@ -984,7 +1025,8 @@ function getTotpStatus(int $userId): array {
     $row = $stmt->fetch() ?: [];
     return [
         'enabled' => (bool)($row['totp_enabled'] ?? 0),
-        'secret'  => $row['totp_secret'] ?? null,
+        // v1.35.0：TOTP 密钥加密存储，此处解密后返回给绑定页展示
+        'secret'  => isset($row['totp_secret']) ? decryptData($row['totp_secret']) : null,
     ];
 }
 
@@ -1052,7 +1094,13 @@ function revokeShareToken(int $id): bool {
 function listShareTokens(): array {
     $db = getDB();
     $stmt = $db->query("SELECT st.*, u.username, n.title AS note_title FROM share_tokens st LEFT JOIN users u ON st.owner_id = u.id LEFT JOIN notes n ON st.note_id = n.id AND n.deleted = 0 ORDER BY st.created_at DESC");
-    return $stmt->fetchAll();
+    $rows = $stmt->fetchAll();
+    // v1.35.0：笔记标题已加密，需解密后展示
+    foreach ($rows as &$r) {
+        $r['note_title'] = decryptData($r['note_title']);
+    }
+    unset($r);
+    return $rows;
 }
 
 /** 指定用户创建的分享链接列表（用户自助管理用，含分享笔记标题） */
@@ -1060,7 +1108,12 @@ function listShareTokensByOwner(int $ownerId): array {
     $db = getDB();
     $stmt = $db->prepare("SELECT st.*, n.title AS note_title FROM share_tokens st LEFT JOIN notes n ON st.note_id = n.id AND n.deleted = 0 WHERE st.owner_id = ? ORDER BY st.created_at DESC");
     $stmt->execute([$ownerId]);
-    return $stmt->fetchAll();
+    $rows = $stmt->fetchAll();
+    foreach ($rows as &$r) {
+        $r['note_title'] = decryptData($r['note_title']);
+    }
+    unset($r);
+    return $rows;
 }
 
 /** 恢复码确认标记处理（所有页面通用） */

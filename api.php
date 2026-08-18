@@ -110,8 +110,9 @@ function handleSave(): void {
         jsonResponse(403, ['error' => '管理员不能创建笔记']);
     }
 
-    $title = trim($_POST['title'] ?? '');
-    $content = $_POST['content'] ?? '';
+    // v1.35.0：标题与正文加密后存储（AES-256-GCM）
+    $title = encryptData(trim($_POST['title'] ?? ''));
+    $content = encryptData($_POST['content'] ?? '');
     $noteId = $_POST['id'] ?? null;
 
     $db = getDB();
@@ -147,27 +148,42 @@ function handleList(): void {
 
     // 排序参数
     $sort = $_GET['sort'] ?? 'updated';
-    $sortMap = [
-        'updated' => 'is_pinned DESC, updated_at DESC',
-        'created' => 'is_pinned DESC, created_at DESC',
-        'title'   => 'is_pinned DESC, title ASC',
-    ];
-    $orderBy = $sortMap[$sort] ?? $sortMap['updated'];
+    $sortMap = ['updated', 'created', 'title'];
+    if (!in_array($sort, $sortMap, true)) {
+        $sort = 'updated';
+    }
 
     $db = getDB();
 
-    // 总数（排除已删除的）
-    $stmt = $db->prepare("SELECT COUNT(*) as total FROM notes WHERE user_id = ? AND deleted = 0");
-    $stmt->execute([$userId]);
-    $total = $stmt->fetch()['total'];
-
-    // 列表（显示前80字符预览，排除已删除的）
+    // v1.35.0：标题/正文已加密，SQL 无法按明文排序与分页，
+    // 改为先取该用户全部未删除笔记，解密后在内存中排序与分页
     $stmt = $db->prepare("SELECT id, title, content, is_pinned, created_at, updated_at
-        FROM notes WHERE user_id = ? AND deleted = 0
-        ORDER BY {$orderBy}
-        LIMIT ? OFFSET ?");
-    $stmt->execute([$userId, $perPage, $offset]);
+        FROM notes WHERE user_id = ? AND deleted = 0");
+    $stmt->execute([$userId]);
     $notes = $stmt->fetchAll();
+
+    // 解密
+    foreach ($notes as &$note) {
+        $note['title'] = decryptData($note['title']);
+        $note['content'] = decryptData($note['content']);
+    }
+    unset($note);
+
+    // 排序
+    usort($notes, function ($a, $b) use ($sort) {
+        if ((int)$a['is_pinned'] !== (int)$b['is_pinned']) {
+            return (int)$b['is_pinned'] - (int)$a['is_pinned'];
+        }
+        if ($sort === 'title') {
+            $cmp = strnatcasecmp((string)$a['title'], (string)$b['title']);
+            return $cmp !== 0 ? $cmp : strcmp($b['updated_at'], $a['updated_at']);
+        }
+        $field = $sort === 'created' ? 'created_at' : 'updated_at';
+        return strcmp($b[$field], $a[$field]);
+    });
+
+    $total = count($notes);
+    $notes = array_slice($notes, $offset, $perPage);
 
     // 处理预览
     foreach ($notes as &$note) {
@@ -201,6 +217,10 @@ function handleGet(): void {
     if (!$note) {
         jsonResponse(404, ['error' => '笔记不存在']);
     }
+
+    // v1.35.0：解密后返回
+    $note['title'] = decryptData($note['title']);
+    $note['content'] = decryptData($note['content']);
 
     jsonResponse(200, $note);
 }
@@ -256,6 +276,10 @@ function handleTrashList(): void {
     $notes = $stmt->fetchAll();
 
     foreach ($notes as &$note) {
+        // v1.35.0：解密标题与正文
+        $note['title'] = decryptData($note['title']);
+        $note['content'] = decryptData($note['content']);
+
         $note['preview'] = !empty(trim($note['title']))
             ? $note['title']
             : (mb_strlen($note['content']) > 50
@@ -329,11 +353,29 @@ function handleSearch(): void {
     }
 
     $db = getDB();
+    // v1.35.0：内容已加密，无法用 SQL LIKE 搜索，改为取出后解密在内存中匹配
     $stmt = $db->prepare("SELECT id, title, content, is_pinned, created_at, updated_at
-        FROM notes WHERE user_id = ? AND deleted = 0 AND (title LIKE ? OR content LIKE ?)
-        ORDER BY is_pinned DESC, updated_at DESC LIMIT 50");
-    $stmt->execute([$userId, "%{$keyword}%", "%{$keyword}%"]);
-    $notes = $stmt->fetchAll();
+        FROM notes WHERE user_id = ? AND deleted = 0");
+    $stmt->execute([$userId]);
+    $all = $stmt->fetchAll();
+
+    $keywordLower = mb_strtolower($keyword);
+    $notes = [];
+    foreach ($all as $note) {
+        $title = decryptData($note['title']);
+        $content = decryptData($note['content']);
+        if (
+            mb_strpos(mb_strtolower($title), $keywordLower) !== false
+            || mb_strpos(mb_strtolower($content), $keywordLower) !== false
+        ) {
+            $note['title'] = $title;
+            $note['content'] = $content;
+            $notes[] = $note;
+        }
+        if (count($notes) >= 50) {
+            break;
+        }
+    }
 
     foreach ($notes as &$note) {
         $note['preview'] = mb_strlen($note['content']) > 80
@@ -453,6 +495,7 @@ function handleStatus(): void {
 
 /** 上传图片 */
 function handleUploadImage(): void {
+    global $config;
     $userId = currentUserId();
 
     // 验证文件
@@ -471,14 +514,14 @@ function handleUploadImage(): void {
         jsonResponse(400, ['error' => $errors[$file['error']] ?? '上传错误']);
     }
 
-    // 限制文件类型（图片 + PDF）
-    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'application/pdf'];
+    // 限制文件类型（图片 + PDF；v1.35.0 起禁用 SVG，防存储型 XSS）
+    $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'application/pdf'];
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
     $mimeType = finfo_file($finfo, $file['tmp_name']);
     finfo_close($finfo);
 
     if (!in_array($mimeType, $allowedTypes)) {
-        jsonResponse(400, ['error' => '不支持的文件类型，仅支持图片（JPG/PNG/GIF/WebP/SVG/BMP）和 PDF']);
+        jsonResponse(400, ['error' => '不支持的文件类型，仅支持图片（JPG/PNG/GIF/WebP/BMP）和 PDF']);
     }
 
     // 限制文件大小（最大10MB）
@@ -487,8 +530,8 @@ function handleUploadImage(): void {
         jsonResponse(400, ['error' => '文件过大，最大支持 10MB']);
     }
 
-    // 确保上传目录存在
-    $uploadDir = __DIR__ . '/data/uploads/';
+    // 确保上传目录存在（v1.35.0：位于数据目录内）
+    $uploadDir = $config['data_dir'] . '/uploads/';
     if (!is_dir($uploadDir)) {
         mkdir($uploadDir, 0755, true);
         // 允许访问图片文件，禁止 PHP 执行和目录列表
@@ -505,10 +548,6 @@ function handleUploadImage(): void {
     // 生成唯一文件名
     $isPdf = ($mimeType === 'application/pdf');
     $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
-    // 将SVG统一为svg扩展名
-    if ($mimeType === 'image/svg+xml') {
-        $ext = 'svg';
-    }
     // PDF 统一为 pdf 扩展名
     if ($isPdf) {
         $ext = 'pdf';
@@ -558,9 +597,11 @@ function handleDeleteImage(): void {
     if (empty($path)) {
         jsonResponse(400, ['error' => '缺少文件路径']);
     }
-    // 安全检查：只允许在 uploads 目录下删除
-    $fullPath = realpath(__DIR__ . '/' . $path);
-    $uploadDir = realpath(__DIR__ . '/data/uploads');
+    // 安全检查：只允许在 uploads 目录下删除（v1.35.0：uploads 位于数据目录内）
+    global $config;
+    $path = preg_replace('#^file\.php\?f=#', '', $path); // 兼容 file.php 代理形式
+    $fullPath = realpath($config['data_dir'] . '/' . $path);
+    $uploadDir = realpath($config['data_dir'] . '/uploads');
     if (!$fullPath || !$uploadDir || strpos($fullPath, $uploadDir) !== 0) {
         jsonResponse(403, ['error' => '无效的文件路径']);
     }
@@ -683,9 +724,10 @@ function handleEnable2fa(): void {
 
     $codes = $pending['recovery_codes'];
     $db = getDB();
+    // v1.35.0：TOTP 密钥加密后存储，防止数据库泄露后被离线伪造
     $stmt = $db->prepare("UPDATE users SET totp_secret = ?, totp_enabled = 1, totp_recovery_codes = ?, totp_failed_attempts = 0, totp_locked_until = NULL WHERE id = ?");
     $stmt->execute([
-        $pending['secret'],
+        encryptData($pending['secret']),
         json_encode(array_map(fn($c) => hash('sha256', $c), $codes)),
         currentUserId(),
     ]);
@@ -713,7 +755,8 @@ function handleDisable2fa(): void {
     if (!$user || (int)$user['totp_enabled'] !== 1) {
         jsonResponse(400, ['error' => '您尚未开启双重认证。']);
     }
-    if (!verifyTotp($user['totp_secret'], $code)) {
+    // v1.35.0：密钥加密存储，验证前解密
+    if (!verifyTotp(decryptData($user['totp_secret']), $code)) {
         jsonResponse(403, ['error' => '验证码不正确，请重试。']);
     }
 

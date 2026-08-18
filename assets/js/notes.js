@@ -1109,7 +1109,7 @@
                     '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' +
                     '<span style="font-size:10px;">PDF</span></div>';
             } else {
-                thumbHtml = '<img class="attach-thumb" src="' + escapeAttr(file.path) + '" alt="" loading="lazy" onclick="event.stopPropagation();openLightbox(\'' + escapeAttr(file.path) + '\', \'image\')">';
+                thumbHtml = '<img class="attach-thumb" src="' + escapeAttr(toFileUrl(file.path)) + '" alt="" loading="lazy" onclick="event.stopPropagation();openLightbox(\'' + escapeAttr(toFileUrl(file.path)) + '\', \'image\')">';
             }
             var refHtml = file.referenced
                 ? '<span style="color:#52c41a;">已引用</span>'
@@ -1638,7 +1638,7 @@
         // 图片/PDF ![alt](url){s|m|l} → 块级展示，{s}=小 {m}=中 默认=大
         html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)(\{([sml])\})?/g, function(m, alt, url, sizeToken, size) {
             var a = escapeAttr(alt || '');
-            var u = escapeAttr(url);
+            var u = escapeAttr(toFileUrl(url));
             var sizeClass = '';
             if (size === 's') sizeClass = ' md-img-s';
             else if (size === 'm') sizeClass = ' md-img-m';
@@ -1876,7 +1876,7 @@
                 document.getElementById('imgPreview').style.display = 'none';
                 showToast('PDF 上传成功');
             } else {
-                document.getElementById('imgPreview').src = data.url;
+                document.getElementById('imgPreview').src = toFileUrl(data.url);
                 document.getElementById('imgPreview').style.display = 'block';
                 showToast('上传成功');
             }
@@ -2149,4 +2149,13 @@
 
     function escapeAttr(str) {
         return (str || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // v1.35.0：上传文件统一走 file.php 鉴权代理，防止无鉴权静态访问
+    // 存储与插入编辑器始终使用原始相对路径 data/uploads/...，仅在渲染/预览时转换
+    function toFileUrl(u) {
+        if (!u) return u;
+        if (u.indexOf('file.php?f=') === 0) return u;
+        if (u.indexOf('data/uploads/') === 0) return 'file.php?f=' + u;
+        return u;
     }

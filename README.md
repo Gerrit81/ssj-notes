@@ -1,13 +1,13 @@
-# 轻记 - SSJ
+# 轻记 - JSBSerect
 
-[![Version](https://img.shields.io/badge/version-1.21.0-blue.svg)](https://github.com)
+[![Version](https://img.shields.io/badge/version-1.35.0-blue.svg)](https://github.com)
 [![PHP](https://img.shields.io/badge/php-%3E%3D7.4-purple.svg)](https://php.net)
 [![SQLite](https://img.shields.io/badge/database-SQLite-orange.svg)](https://sqlite.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-一款轻量级、零依赖的个人记事本应用。基于 PHP + SQLite 构建，无需 MySQL、无需 Composer，开箱即用。适合**部署在内网服务器**，供团队多人使用。
+一款轻量级、零依赖的个人记事本应用。基于 PHP + SQLite 构建，无需 MySQL、无需 Composer，开箱即用。适合**部署在内网服务器**（Windows Server+phpStudy / 群晖 NAS）或**外网 VPS**（Debian+宝塔），供团队多人使用。
 
-> 🔒 **定位**：内网环境下的个人记事工具，数据隔离、部署简单、上手零门槛。
+> 🔒 **定位**：安全优先的记事工具——数据 AES-256-GCM 加密存储 + 数据目录外置 + 双重认证，即使数据库文件泄露也无法读取内容。
 
 ---
 
@@ -32,10 +32,14 @@
 - **⌨️** `Ctrl+F` 搜索 | `Ctrl+S` 保存 | `Ctrl+D` 分隔符 | `Esc` 清空搜索
 
 ### 安全
+- **🔒 数据加密（v1.35.0）** — 笔记标题、正文、TOTP 密钥以 AES-256-GCM 加密后入库；主密钥为 Web 目录外的随机密钥文件；备份同样加密存储
+- **📂 数据目录外置** — 数据库/备份/会话/日志可配置到 Web 根目录之外，杜绝被 URL 直接下载
+- **🛡️ 上传鉴权代理** — 图片/PDF 经 `file.php` 鉴权输出，不再有无鉴权静态 URL；已禁用 SVG（防存储型 XSS）
 - **👥 多用户隔离** — 每个用户只能访问自己的笔记，数据完全隔离
 - **🔐 CSRF 防护** — 所有写操作均验证 CSRF Token
 - **🛡️ Cookie 安全** — HttpOnly + SameSite + Secure 属性
 - **🔑 密码哈希** — 使用 `password_hash()` 安全存储密码
+- **🔢 TOTP 二次认证** — 标准 RFC 6238 动态码，可绑定 Google/Microsoft Authenticator、微信小程序，支持恢复码
 - **📋 登录日志** — 记录每次登录的用户名、IP、时间和状态
 
 ### 管理后台
@@ -53,31 +57,33 @@
 ## 🚀 快速开始
 
 ### 环境要求
-- PHP >= 7.4
+- PHP >= 8.0（7.4 亦可，但不建议）
 - SQLite3 扩展（PHP 默认自带）
-- MBString 扩展
+- MBString、OpenSSL 扩展（OpenSSL 用于 AES-256-GCM 加密，必须启用）
 
-### 部署到服务器（3 步完成）
+### 部署步骤（通用）
 
-**第 1 步：上传文件**
+**第 1 步：上传代码**
+将所有文件上传到 Web 目录（如 `D:/phpStudy_Pro/WWW/jsbserect/` 或 `/www/wwwroot/jsbserect/`）。**不要上传 `data/` 目录**（运行时自动生成）。
 
-将所有文件上传到 Web 服务器目录（如 `/var/www/html/SSJ/`），**注意不要上传 `data/` 目录**（数据库和日志由程序运行时自动生成）。
+**第 2 步：配置数据目录与密钥路径（关键！）**
+编辑 `config.php`，把 `$config['data_dir']` 指向 **Web 根目录之外**：
 
-**第 2 步：设置权限**
+| 环境 | 示例 |
+|---|---|
+| 内网 Windows Server + phpStudy | `$config['data_dir'] = 'D:/WebData/jsbserect';` |
+| 群晖 NAS + WebStation | `$config['data_dir'] = '/volume1/web_data/jsbserect';` |
+| 外网 Debian12 + 宝塔 | `$config['data_dir'] = '/www/wwwroot_data/jsbserect';` |
 
-```bash
-chmod -R 755 data/
-```
+加密主密钥默认存放在 `data_dir/key/master.key`（**请务必妥善备份**，丢失后已加密数据无法解密）。如需单独指定密钥位置，设置 `$config['enc_key_path']`。
 
-**第 3 步：修改管理员密码**
+**第 3 步：Web 服务器防护**
+详见 [`deploy/`](deploy/) 目录——提供了 Nginx / phpStudy / Apache / 群晖 / 宝塔的防护配置样例，用于禁止浏览器直接访问 `data/` 目录。
 
-编辑 `config.php`：
-```php
-$config['admin_username'] = 'admin';          // 管理员用户名
-$config['admin_password'] = 'your-password';  // 改成你自己的密码
-```
+**第 4 步：访问**
+浏览器访问 `http://your-server/jsbserect/`，首次访问自动初始化数据库并创建管理员账号，然后进入管理后台修改管理员密码、开启双重认证。
 
-然后浏览器访问 `http://your-server/SSJ/` 即可使用。首次访问会自动初始化数据库。
+> 各环境的详细配置说明：`deploy/synology-webstation.md`（群晖）、`deploy/baota-nginx.md`（宝塔）、`deploy/phpstudy-nginx.txt`（phpStudy）。
 
 ---
 
@@ -93,13 +99,17 @@ SSJ/
 ├── admin.php              # 管理后台（用户管理、统计、日志）
 ├── admin/
 │   └── changelog.php      # 更新日志展示页
-├── init.php               # 初始化（数据库建表、会话、公共函数）
-├── config.php             # 配置文件（版本号、数据库、管理员账号）
-├── backup.php             # 数据库备份脚本（命令行/定时任务）
+├── crypto.php             # 数据加密模块（AES-256-GCM、密钥管理、备份加解密）
+├── file.php               # 上传文件鉴权代理（图片/PDF 鉴权输出）
+├── init.php               # 初始化（数据库建表、会话、公共函数、安全自检）
+├── config.php             # 配置文件（版本号、数据目录、加密密钥路径）
+├── backup.php             # 数据库备份脚本（命令行/定时任务，加密备份）
 ├── logout.php             # 退出登录
-├── data/                  # 数据目录（程序自动创建）
+├── deploy/                # 三种生产环境的 Web 服务器防护配置样例
+├── data/                  # 数据目录（程序自动创建，生产环境应外置）
 │   ├── index.php          # 目录访问保护
-│   ├── notes.db           # SQLite 数据库
+│   ├── notes.db           # SQLite 数据库（笔记内容为密文）
+│   ├── key/master.key     # 加密主密钥（务必妥善备份！）
 │   └── app.log            # 操作日志
 ├── CHANGELOG.md           # 更新日志
 └── README.md              # 项目说明（本文件）
@@ -156,8 +166,11 @@ MIT License
 ## ⚠️ 注意事项
 
 - **不要在生产环境开启 `display_errors`**（config.php 中已默认关闭）
+- **加密主密钥（`key/master.key`）务必妥善备份**，丢失后所有已加密数据将无法解密；备份数据时应连同密钥一起备份
+- **升级时 `data/` 目录绝对不能覆盖**；升级前建议先在旧版本上手动备份（`backup.php`），升级后旧明文备份依然可读，新备份自动为密文
 - 管理员账号仅用于用户管理，**不能创建或编辑笔记**
 - 删除的笔记在回收站保留 30 天后自动清理，可在管理后台调整
-- 建议定期执行 `backup.php` 备份数据库
-- 部署在外网时请务必配置 HTTPS
+- 建议配置定时任务定期执行 `backup.php`（宝塔：计划任务 → Shell 脚本）
+- 部署在外网时请务必配置 HTTPS（宝塔可一键申请免费证书）
+- 数据目录外置 + 加密是两道防线，两者都做（见 `deploy/` 与 `config.php` 注释）
 - `data/` 目录是运行时自动生成的，上传代码时不要包含此目录

@@ -1,0 +1,16 @@
+# 轻记 - Apache .htaccess 防护配置
+# 放置位置：程序根目录（与 index.php 同级的 .htaccess）
+# 说明：Apache 默认解析 .htaccess；phpStudy-Apache 请在站点配置中开启 AllowOverride All
+
+# 禁止直接访问数据目录
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^data/ - [F,L]
+</IfModule>
+
+# 禁止 data/、assets/ 下执行 PHP
+<FilesMatch "\.(php|phtml|phar)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+</FilesMatch>

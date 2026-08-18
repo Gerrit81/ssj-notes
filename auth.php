@@ -291,7 +291,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $error = '账号状态异常，请重新登录。';
                 unset($_SESSION['2fa_pending_user_id'], $_SESSION['2fa_pending_username']);
                 $mode = 'login';
-            } elseif (verifyTotp($user['totp_secret'], $code) || verifyRecoveryCode($userId, $code)) {
+            } elseif (verifyTotp(decryptData($user['totp_secret']), $code) || verifyRecoveryCode($userId, $code)) {
                 resetTotpFailures($userId);
                 logLogin($username, true, '登录成功（二次认证）');
                 appLog("用户 {$username} 通过二次认证登录");
@@ -338,8 +338,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $db = getDB();
             $recoveryCodes = generateRecoveryCodes();
             $hashed = array_map(function ($c) { return hash('sha256', $c); }, $recoveryCodes);
+            // v1.35.0：TOTP 密钥加密后存储
             $stmt = $db->prepare("UPDATE users SET totp_secret = ?, totp_enabled = 1, totp_recovery_codes = ?, totp_failed_attempts = 0, totp_locked_until = NULL WHERE id = ?");
-            $stmt->execute([$bind['secret'], json_encode($hashed), (int)$bind['user_id']]);
+            $stmt->execute([encryptData($bind['secret']), json_encode($hashed), (int)$bind['user_id']]);
 
             $stmt = $db->prepare("SELECT * FROM users WHERE id = ?");
             $stmt->execute([(int)$bind['user_id']]);
@@ -466,9 +467,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     $forgotStep = 1;
                 } else {
                     $db = getDB();
-                    $stmt = $db->prepare("SELECT COUNT(*) as cnt FROM notes WHERE user_id = ? AND deleted = 0 AND (title LIKE ? OR content LIKE ?)");
-                    $stmt->execute([$_SESSION['reset_user_id'], "%{$keyword}%", "%{$keyword}%"]);
-                    $found = $stmt->fetch()['cnt'] > 0;
+                    // v1.35.0：内容已加密无法 LIKE，改为取出该用户笔记解密后匹配
+                    $stmt = $db->prepare("SELECT title, content FROM notes WHERE user_id = ? AND deleted = 0");
+                    $stmt->execute([$_SESSION['reset_user_id']]);
+                    $rows = $stmt->fetchAll();
+                    $found = false;
+                    $keywordLower = mb_strtolower($keyword);
+                    foreach ($rows as $row) {
+                        $title = (string)decryptData($row['title']);
+                        $content = (string)decryptData($row['content']);
+                        if (mb_strpos(mb_strtolower($title), $keywordLower) !== false || mb_strpos(mb_strtolower($content), $keywordLower) !== false) {
+                            $found = true;
+                            break;
+                        }
+                    }
                     if ($found) {
                         $_SESSION['reset_step'] = 'password';
                         $forgotStep = 3;

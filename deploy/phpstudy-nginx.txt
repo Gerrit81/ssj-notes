@@ -1,0 +1,19 @@
+# 轻记 - phpStudy Nginx 防护配置
+#
+# phpStudy 的 Nginx 引擎会把 D:/phpStudy_Pro/WWW/nginx.htaccess
+# 内容自动 include 进所有站点配置。
+# 用法：把下面内容【追加】到该文件末尾，并把 jsbserect 换成你的实际目录名。
+#
+# 注意：此文件是全局的，规则只影响指定路径，不影响其他站点。
+
+# 禁止浏览器直接访问 jsbserect 的数据目录
+location ~ ^/jsbserect/data/ {
+    deny all;
+    return 404;
+}
+
+# 禁止执行 data/assets 下的 PHP 脚本
+location ~* ^/jsbserect/(data|assets)/.*\.(php|phtml|phar)$ {
+    deny all;
+    return 404;
+}

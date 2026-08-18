@@ -509,8 +509,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $message = '缺少文件路径';
             $messageType = 'error';
         } else {
-            $fullPath = realpath(__DIR__ . '/' . $path);
-            $uploadDir = realpath(__DIR__ . '/data/uploads');
+            // v1.35.0：uploads 目录随数据目录迁移
+            $fullPath = realpath($config['data_dir'] . '/' . $path);
+            $uploadDir = realpath($config['data_dir'] . '/uploads');
             if (!$fullPath || !$uploadDir || strpos($fullPath, $uploadDir) !== 0) {
                 $message = '无效的文件路径';
                 $messageType = 'error';
@@ -656,6 +657,22 @@ require_once __DIR__ . '/header.php';
 <div class="container">
     <h1 class="page-title">管理后台</h1>
     <p class="page-desc">管理用户账号、查看访问统计。管理员本身不参与记事。</p>
+
+    <?php
+    // v1.35.0：安全部署状态提示（数据目录/密钥位于 Web 内时告警）
+    $secWarnings = [];
+    if (!empty($GLOBALS['SEC_WARNING_DATA_DIR'])) {
+        $secWarnings[] = '数据目录位于 Web 根目录内，建议将 $config[\'data_dir\'] 配置到 Web 目录之外，防止数据库被直接下载。';
+    }
+    if (!empty($GLOBALS['SEC_WARNING_KEY'])) {
+        $secWarnings[] = '加密主密钥文件位于 Web 根目录内，密钥泄露将导致数据可被解密，请将 $config[\'enc_key_path\'] 指向 Web 目录之外。';
+    }
+    if ($secWarnings): ?>
+        <div class="message error" style="margin-bottom:14px;border-color:#ffa39e;background:#fff1f0;">
+            <strong>安全部署提示：</strong><br>
+            <?= implode('<br>', array_map('htmlspecialchars', $secWarnings)) ?>
+        </div>
+    <?php endif; ?>
 
     <?php if ($message): 
         $showCopyPwd = false; $copyPwd = ''; $copyPwdUser = '';
