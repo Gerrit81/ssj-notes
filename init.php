@@ -90,7 +90,10 @@ if (session_status() === PHP_SESSION_NONE) {
         'samesite' => 'Lax',
     ];
     session_set_cookie_params($cookieParams);
-    session_name('JSBSESSID');
+    // 会话名：按安装路径生成唯一名称。同一服务器/域名部署多套实例时，
+    // 若共用同名 Cookie 会互相覆盖，导致"登录一套顶掉另一套"；
+    // 改为路径哈希后，任意多套部署互不冲突（session 名称仅含字母数字，兼容 PHP 7+）
+    session_name('JSBSESSID' . substr(md5(__DIR__), 0, 10));
     session_start();
 }
 

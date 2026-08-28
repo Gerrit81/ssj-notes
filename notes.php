@@ -23,16 +23,47 @@ function renderShareMarkdown(string $text): string {
         }
         return '<img class="share-img" src="' . $url . '" alt="' . $m[1] . '" loading="lazy">';
     }, $text);
-    // 链接（过滤危险协议）
-    $text = preg_replace_callback('/\[(.*?)\]\((.*?)\)/', function ($m) {
+    // 行内代码 → 先占位，避免其中的 URL 被裸 URL 识别误处理
+    $mdCodes = [];
+    $text = preg_replace_callback('/`([^`]+)`/', function ($m) use (&$mdCodes) {
+        $mdCodes[] = '<code>' . $m[1] . '</code>';
+        return "\x01ICODE" . (count($mdCodes) - 1) . "\x01";
+    }, $text);
+    // 链接（过滤危险协议）→ 先占位，避免 href 被裸 URL 识别二次处理
+    $mdLinks = [];
+    $text = preg_replace_callback('/\[(.*?)\]\((.*?)\)/', function ($m) use (&$mdLinks) {
         $url = trim($m[2]);
         if (preg_match('/^(javascript|data|vbscript):/i', $url)) {
             return htmlspecialchars($m[0]);
         }
-        return '<a href="' . $url . '" target="_blank" rel="noopener noreferrer">' . $m[1] . '</a>';
+        $mdLinks[] = '<a href="' . $url . '" target="_blank" rel="noopener noreferrer">' . $m[1] . '</a>';
+        return "\x01LINK" . (count($mdLinks) - 1) . "\x01";
     }, $text);
-    // 行内代码
-    $text = preg_replace('/`([^`]+)`/', '<code>$1</code>', $text);
+    // 临时保护已生成的 HTML 标签（如图片 src 外链），避免裸 URL 误匹配标签属性
+    $mdTags = [];
+    $text = preg_replace_callback('/<[^>]+>/', function ($m) use (&$mdTags) {
+        $mdTags[] = $m[0];
+        return "\x01TAG" . (count($mdTags) - 1) . "\x01";
+    }, $text);
+    // 自动识别裸 URL（http/https/ftp、www. 开头），点击新窗口打开
+    $text = preg_replace_callback('#(?<![\w])https?://[^\s<>"\'()]+|(?<![\w])www\.[^\s<>"\'()]+#i', function ($m) {
+        $url = trim(preg_replace('/[.,!?;:]+$/', '', $m[0]));
+        if ($url === '') {
+            return '';
+        }
+        $href = preg_match('/^www\./i', $url) ? 'http://' . $url : $url;
+        return '<a href="' . $href . '" target="_blank" rel="noopener noreferrer">' . $url . '</a>';
+    }, $text);
+    // 还原占位符（标签 / 链接 / 行内代码）
+    $text = preg_replace_callback('/\x01TAG(\d+)\x01/', function ($m) use ($mdTags) {
+        return $mdTags[(int)$m[1]];
+    }, $text);
+    $text = preg_replace_callback('/\x01LINK(\d+)\x01/', function ($m) use ($mdLinks) {
+        return $mdLinks[(int)$m[1]];
+    }, $text);
+    $text = preg_replace_callback('/\x01ICODE(\d+)\x01/', function ($m) use ($mdCodes) {
+        return $mdCodes[(int)$m[1]];
+    }, $text);
     // 标题
     $text = preg_replace('/^### (.*)$/m', '<h3>$1</h3>', $text);
     $text = preg_replace('/^## (.*)$/m', '<h2>$1</h2>', $text);

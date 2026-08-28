@@ -1630,9 +1630,11 @@
         var html = text;
         html = escapeMd(html);
 
-        // 代码块
+        // 代码块（先占位，避免其中的 URL 被裸 URL 识别误处理）
+        var mdCodeBlocks = [];
         html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
-            return '<pre><code>' + code.trim() + '</code></pre>';
+            mdCodeBlocks.push('<pre><code>' + code.trim() + '</code></pre>');
+            return '\x01MDBLOCK' + (mdCodeBlocks.length - 1) + '\x01';
         });
 
         // 图片/PDF ![alt](url){s|m|l} → 块级展示，{s}=小 {m}=中 默认=大
@@ -1691,15 +1693,45 @@
         // 斜体 *text*
         html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
 
-        // 行内代码 `code`
-        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // 行内代码 `code`（先占位，避免其中的 URL 被裸 URL 识别误处理）
+        var mdCodes = [];
+        html = html.replace(/`([^`]+)`/g, function(m, code) {
+            mdCodes.push('<code>' + code + '</code>');
+            return '\x01MDCODE' + (mdCodes.length - 1) + '\x01';
+        });
 
-        // 链接 [text](url)
-        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        // 链接 [text](url)（先占位，避免 href 被裸 URL 识别二次处理）
+        var mdLinks = [];
+        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(m, text, url) {
+            mdLinks.push('<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener">' + text + '</a>');
+            return '\x01MDLINK' + (mdLinks.length - 1) + '\x01';
+        });
+
+        // 临时保护已生成的 HTML 标签（如图片 src 外链），避免裸 URL 误匹配标签属性
+        var mdTags = [];
+        html = html.replace(/<[^>]+>/g, function(m) {
+            mdTags.push(m);
+            return '\x01MDTAG' + (mdTags.length - 1) + '\x01';
+        });
+
+        // 自动识别裸 URL（http/https/ftp、www. 开头），点击新窗口打开
+        html = html.replace(/(?<![\w])https?:\/\/[^\s<>"')]+|(?<![\w])www\.[^\s<>"')]+/gi, function(m) {
+            // 去掉尾部常见标点（句号/逗号/感叹号/问号/分号/冒号）
+            m = m.replace(/[.,!?;:]+$/, '');
+            if (!m) return '';
+            var href = /^www\./i.test(m) ? 'http://' + m : m;
+            return '<a href="' + escapeAttr(href) + '" target="_blank" rel="noopener">' + m + '</a>';
+        });
 
         // 段落
         html = html.replace(/\n\n+/g, '</p><p>');
         html = '<p>' + html + '</p>';
+
+        // 还原占位符（在修复嵌套之前，保证块级元素正确脱离 <p>）
+        html = html.replace(/\x01MDTAG(\d+)\x01/g, function(m, i) { return mdTags[+i]; });
+        html = html.replace(/\x01MDLINK(\d+)\x01/g, function(m, i) { return mdLinks[+i]; });
+        html = html.replace(/\x01MDCODE(\d+)\x01/g, function(m, i) { return mdCodes[+i]; });
+        html = html.replace(/\x01MDBLOCK(\d+)\x01/g, function(m, i) { return mdCodeBlocks[+i]; });
 
         // 修复嵌套
         html = html.replace(/<p><(h[1-3]|ul|ol|blockquote|pre|hr|div)/g, '<$1');
