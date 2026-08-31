@@ -728,7 +728,8 @@ function handleEnable2fa(): void {
     $stmt = $db->prepare("UPDATE users SET totp_secret = ?, totp_enabled = 1, totp_recovery_codes = ?, totp_failed_attempts = 0, totp_locked_until = NULL WHERE id = ?");
     $stmt->execute([
         encryptData($pending['secret']),
-        json_encode(array_map(fn($c) => hash('sha256', $c), $codes)),
+        // 兼容 PHP 7.0+：不使用箭头函数（PHP 7.4+ 才支持，低版本会整文件解析失败导致接口 500）
+        json_encode(array_map(function ($c) { return hash('sha256', $c); }, $codes)),
         currentUserId(),
     ]);
 

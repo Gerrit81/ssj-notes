@@ -266,6 +266,10 @@
         contentEl.addEventListener('scroll', () => {
             document.getElementById('lineNumbers').scrollTop = contentEl.scrollTop;
         });
+        // 滚动同步：预览内容滚动时同步行号
+        document.getElementById('previewContent').addEventListener('scroll', () => {
+            document.getElementById('lineNumbers').scrollTop = document.getElementById('previewContent').scrollTop;
+        });
 
         // 定时器自动保存相关内容
         titleEl.addEventListener('change', () => { isDirty = true; });
@@ -371,6 +375,23 @@
         } else {
             body.classList.remove('has-content');
         }
+    }
+
+    // 预览模式行号：基于源码逻辑行数显示行号，行号样式与预览内容对齐
+    function updatePreviewLineNumbers() {
+        const ta = document.getElementById('editorContent');
+        const ln = document.getElementById('lineNumbers');
+        const pc = document.getElementById('previewContent');
+        if (!ta || !ln || !pc) return;
+
+        const count = Math.max(ta.value.split('\n').length, 1);
+        ln.textContent = Array.from({ length: count }, (_, i) => i + 1).join('\n');
+
+        // 行高与背景色跟随预览内容，保证行号与预览段落垂直对齐
+        const cs = getComputedStyle(pc);
+        ln.style.lineHeight = cs.lineHeight;
+        ln.style.backgroundColor = cs.backgroundColor;
+        ln.scrollTop = pc.scrollTop;
     }
 
     // 初始化选择器
@@ -599,6 +620,7 @@
 
             document.getElementById('skinSelector').classList.remove('show');
             syncLineNumberStyles();
+            if (isPreviewMode) updatePreviewLineNumbers();
             loadNoteList();
             showToast('皮肤已切换');
         } catch (e) {
@@ -1549,11 +1571,17 @@
         }
     }
 
-    // 窗口缩放时重新计算行号（折行宽度变化）
+    // 窗口缩放时重新计算行号（折行宽度变化，预览/编辑分别处理）
     let resizeDebounce = null;
     window.addEventListener('resize', function() {
         if (resizeDebounce) clearTimeout(resizeDebounce);
-        resizeDebounce = setTimeout(() => updateLineNumbers(), 150);
+        resizeDebounce = setTimeout(() => {
+            if (isPreviewMode) {
+                updatePreviewLineNumbers();
+            } else {
+                updateLineNumbers();
+            }
+        }, 150);
     });
 
     // bfcache 恢复（保持登录用户跳过重载，恢复即可）
@@ -1600,6 +1628,8 @@
         ta.scrollTop = savedEditScrollTop;
         ta.focus();
         updateLineNumbers();
+        // 恢复编辑模式行号样式（预览模式可能改过行高/背景）
+        syncLineNumberStyles();
     }
 
     function switchToPreviewMode() {
@@ -1610,12 +1640,14 @@
         renderMarkdown();
         document.getElementById('editorContent').style.display = 'none';
         document.getElementById('previewContent').style.display = '';
-        document.getElementById('lineNumbers').style.display = 'none';
+        // 预览模式也显示行号（数量基于源码逻辑行，样式与预览内容对齐）
+        document.getElementById('lineNumbers').style.display = '';
         document.getElementById('mdToolbar').style.display = 'none';
         document.getElementById('insertImageBtn').style.display = 'none';
         document.getElementById('previewIconEdit').style.display = 'none';
         document.getElementById('previewIconView').style.display = '';
         document.getElementById('previewToggleBtn').setAttribute('data-tooltip', '切换编辑');
+        updatePreviewLineNumbers();
     }
 
     function renderMarkdown() {
