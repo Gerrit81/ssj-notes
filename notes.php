@@ -594,6 +594,8 @@ require_once __DIR__ . '/header.php';
             </div>
             <div class="footer-meta">
                 <span class="logout-countdown" id="logoutCountdown"></span>
+                <a href="devices.php" class="version-link">我的设备</a>
+                <span class="footer-sep">|</span>
                 <a href="admin/changelog.php" target="_blank" class="version-link">v<?= $config['app_version'] ?></a>
             </div>
         </div>

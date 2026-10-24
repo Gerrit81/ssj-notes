@@ -6,9 +6,29 @@
 require_once __DIR__ . '/auth.php';
 
 $pageTitleSuffix = '登录';
+
+// Android 客户端下载入口（v1.42.0）
+// APK 放在站点根目录即自动出现（如 miji_v1.apk / miji_v2.apk），
+// 存在多个时取版本号最大的一个；没有 APK 时整块隐藏，避免出现死链。
+$apkFiles = glob(__DIR__ . '/miji_v*.apk') ?: [];
+usort($apkFiles, function ($a, $b) { return strnatcasecmp(basename($b), basename($a)); });
+$apkUrl = '';
+$apkSize = '';
+$apkVersion = '';
+if (!empty($apkFiles)) {
+    $apkUrl = basename($apkFiles[0]);
+    $apkBytes = (int) @filesize($apkFiles[0]);
+    $apkSize = $apkBytes >= 1048576
+        ? round($apkBytes / 1048576, 1) . ' MB'
+        : round($apkBytes / 1024) . ' KB';
+    if (preg_match('/_v([0-9][0-9.]*)\.apk$/i', $apkUrl, $apkMatch)) {
+        $apkVersion = ' v' . $apkMatch[1];
+    }
+}
+
 require_once __DIR__ . '/header.php';
 ?>
-    <link rel="stylesheet" href="assets/css/login.css?v=1.33.0">
+    <link rel="stylesheet" href="assets/css/login.css?v=1.42.0">
 
 </head>
 <body>
@@ -24,6 +44,7 @@ require_once __DIR__ . '/header.php';
     <div class="body">
         <div class="tabs">
             <a href="?mode=login" class="<?= $mode === 'login' ? 'active' : '' ?>">登录</a>
+            <a href="?mode=qr" class="<?= ($mode === 'qr' || (isset($_GET['qr']) && $mode === 'login')) ? 'active' : '' ?>">扫码登录</a>
             <?php if ($registerMode !== 'closed'): ?>
             <a href="?mode=register" class="<?= $mode === 'register' ? 'active' : '' ?>">注册</a>
             <?php endif; ?>
@@ -33,7 +54,7 @@ require_once __DIR__ . '/header.php';
         <?php if ($notice): ?><div class="message info"><?= htmlspecialchars($notice) ?></div><?php endif; ?>
         <?php if ($tokenError): ?><div class="message error"><?= htmlspecialchars($tokenError) ?></div><?php endif; ?>
         <?php if ($mode === 'login' && isset($_GET['step']) && $_GET['step'] === '2fa'): ?>
-            <div class="message info">已通过密码验证，请输入手机上的动态码完成二次认证。</div>
+            <div class="message info">已通过密码验证，请输入动态码完成二次认证。</div>
             <form method="post" action="index.php?step=2fa">
                 <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
                 <input type="hidden" name="action" value="verify_2fa">
@@ -64,8 +85,8 @@ require_once __DIR__ . '/header.php';
             <form method="post">
                 <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
                 <input type="hidden" name="action" value="login">
-                <div class="form-group"><label for="username">用户名</label><input type="text" id="username" name="username" autocomplete="username" required autofocus></div>
-                <div class="form-group"><label for="password">密码</label><input type="password" id="password" name="password" autocomplete="current-password" required></div>
+                <div class="form-group"><label for="username">用户名</label><input type="text" id="username" name="username" value="<?= htmlspecialchars($loginUsername) ?>" autocomplete="username" required autofocus></div>
+                <div class="form-group"><label for="password">密码</label><input type="password" id="password" name="password" value="<?= htmlspecialchars($loginPassword) ?>" autocomplete="current-password" required></div>
                 <div class="form-group" style="display:flex;align-items:center;gap:8px;font-size:13px;color:#8b8ba0;">
                     <input type="checkbox" id="keep_login" name="keep_login" value="1" style="width:auto;margin:0;accent-color:#667eea;">
                     <label for="keep_login" style="margin:0;cursor:pointer;">保持登录（注意安全，及时退出）</label>
@@ -81,6 +102,127 @@ require_once __DIR__ . '/header.php';
                 <?php endif; ?>
                 <button type="submit" class="btn">登 录</button>
             </form>
+        <?php elseif ($mode === 'qr'): ?>
+            <div id="qr-login-area">
+                <p style="font-size:13px;color:#a5a5c0;margin-bottom:18px;line-height:1.7;">
+                    用已登录的 <strong style="color:#fff;">轻记 APP</strong> 扫描下方二维码即可登录，无需输入密码 / 二次验证码。
+                </p>
+                <div id="qr-stage" style="display:flex;flex-direction:column;align-items:center;gap:14px;">
+                    <div id="qr-box" style="width:220px;height:220px;background:#fff;border-radius:12px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 18px rgba(0,0,0,0.18);">
+                        <div style="color:#999;font-size:13px;">二维码加载中…</div>
+                    </div>
+                    <div id="qr-hint" style="font-size:13px;color:#a5a5c0;line-height:1.6;text-align:center;">
+                        等待 APP 扫描…<br><span id="qr-timer" style="color:#fff;font-variant-numeric:tabular-nums;">60</span> 秒后自动刷新
+                    </div>
+                </div>
+                <div id="qr-approved" style="display:none;text-align:center;color:#a5f3a5;padding:18px 0;">
+                    <div style="font-size:16px;font-weight:bold;margin-bottom:6px;">已授权，正在进入…</div>
+                    <div style="font-size:13px;color:#a5a5c0;">如未自动跳转，请<a href="notes.php" style="color:#a5f3a5;">点这里</a>。</div>
+                </div>
+                <div id="qr-error" style="display:none;text-align:center;color:#fca5a5;padding:14px 0;font-size:13px;line-height:1.6;"></div>
+            </div>
+            <script src="assets/js/qrcode.js"></script>
+            <script>
+            (function () {
+                var stage = document.getElementById('qr-stage');
+                var qrBox = document.getElementById('qr-box');
+                var qrTimer = document.getElementById('qr-timer');
+                var qrHint = document.getElementById('qr-hint');
+                var qrApproved = document.getElementById('qr-approved');
+                var qrError = document.getElementById('qr-error');
+                var state = { code: null, token: null, expiresAt: 0, timer: null, poller: null, stopped: false };
+
+                function showError(msg) {
+                    stage.style.display = 'none';
+                    qrError.textContent = msg;
+                    qrError.style.display = 'block';
+                }
+
+                function startQrLogin() {
+                    fetch('api.php?action=qr_login_start', { credentials: 'same-origin' })
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) {
+                            if (!d.ok) {
+                                // 已在登录态时（"已登录，无需扫码"）跳转到应用
+                                if (/已登录/.test(d.error || '')) {
+                                    window.location.href = 'notes.php';
+                                    return;
+                                }
+                                showError(d.error || '二维码初始化失败');
+                                return;
+                            }
+                            state.code = d.session_code;
+                            state.token = d.poll_token;
+                            state.expiresAt = d.expires_at * 1000;
+                            renderQr(d.server_host);
+                            startTimer();
+                            poll();
+                        })
+                        .catch(function () { showError('二维码初始化失败（网络错误）'); });
+                }
+
+                function renderQr(host) {
+                    var payload = 'jsbqr1://' + host + '/' + state.code;
+                    try {
+                        var qr = qrcode(0, 'M');
+                        qr.addData(payload);
+                        qr.make();
+                        qrBox.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+                        qrBox.style.cssText = 'width:220px;height:220px;background:#fff;border-radius:12px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 18px rgba(0,0,0,0.18);';
+                    } catch (e) {
+                        showError('二维码渲染失败');
+                    }
+                }
+
+                function startTimer() {
+                    if (state.timer) clearInterval(state.timer);
+                    state.timer = setInterval(function () {
+                        var remaining = Math.max(0, Math.ceil((state.expiresAt - Date.now()) / 1000));
+                        qrTimer.textContent = remaining;
+                        if (remaining <= 0) {
+                            clearInterval(state.timer);
+                            clearTimeout(state.poller);
+                            state.stopped = true;
+                            qrHint.innerHTML = '二维码已过期，正在刷新…';
+                            setTimeout(startQrLogin, 500);
+                        }
+                    }, 250);
+                }
+
+                function poll() {
+                    if (state.stopped) return;
+                    state.poller = setTimeout(function () {
+                        if (state.stopped) return;
+                        fetch('api.php?action=qr_login_poll&code=' + encodeURIComponent(state.code) + '&poll_token=' + encodeURIComponent(state.token), { credentials: 'same-origin' })
+                            .then(function (r) { return r.json(); })
+                            .then(function (d) {
+                                if (!d.ok) { showError(d.error || '登录失败'); return; }
+                                if (d.status === 'approved') {
+                                    state.stopped = true;
+                                    if (state.timer) clearInterval(state.timer);
+                                    if (state.poller) clearTimeout(state.poller);
+                                    stage.style.display = 'none';
+                                    qrApproved.style.display = 'block';
+                                    setTimeout(function () { window.location.href = d.redirect; }, 600);
+                                    return;
+                                }
+                                if (d.status === 'expired') {
+                                    state.stopped = true;
+                                    if (state.timer) clearInterval(state.timer);
+                                    qrHint.innerHTML = '二维码已过期或已被使用，正在刷新…';
+                                    setTimeout(startQrLogin, 500);
+                                    return;
+                                }
+                                // pending：间隔 2 秒后再次轮询
+                                setTimeout(poll, 2000);
+                            })
+                            .catch(function () { setTimeout(poll, 4000); });
+                    }, 2000);
+                }
+
+                startQrLogin();
+            })();
+            </script>
         <?php elseif ($mode === 'forgot'): ?>
             <div class="forgot-steps">
                 <div class="step-indicator">
@@ -132,6 +274,17 @@ require_once __DIR__ . '/header.php';
                 <?php endif; ?>
                 <button type="submit" class="btn">注 册</button>
             </form>
+        <?php endif; ?>
+
+        <!-- Android 客户端下载（APK 放在站点根目录时自动出现） -->
+        <?php if ($apkUrl): ?>
+        <div class="app-download">
+            <a href="<?= htmlspecialchars($apkUrl) ?>" download>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.6 9.48l1.84-3.18c.16-.31.04-.69-.26-.85-.29-.15-.65-.06-.83.22l-1.88 3.24c-2.86-1.21-6.08-1.21-8.94 0L5.65 5.67c-.19-.29-.57-.37-.85-.22-.3.16-.42.54-.26.85l1.84 3.18C2.9 11.1 1.1 14.2 1 18h22c-.1-3.8-1.9-6.9-5.4-8.52zM7 15.25c-.69 0-1.25-.56-1.25-1.25s.56-1.25 1.25-1.25 1.25.56 1.25 1.25-.56 1.25-1.25 1.25zm10 0c-.69 0-1.25-.56-1.25-1.25s.56-1.25 1.25-1.25 1.25.56 1.25 1.25-.56 1.25-1.25 1.25z"/></svg>
+                <span>下载 Android 客户端<?= htmlspecialchars($apkVersion) ?></span>
+                <span class="app-download-meta"><?= htmlspecialchars($apkSize) ?></span>
+            </a>
+        </div>
         <?php endif; ?>
     </div>
     <div class="footer"><a href="admin/changelog.php" target="_blank">v<?= getVersion() ?></a></div>

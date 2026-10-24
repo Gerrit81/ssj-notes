@@ -211,16 +211,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         setSetting('session_timeout_minutes', (string)$minutes);
         $single = !empty($_POST['single_client_login']) ? '1' : '0';
         setSetting('single_client_login', $single);
+        // v1.43.0：APP 端最大同时在线设备数（0=不限制），与 WEB 端单点登录独立
+        $mobileMaxDevices = max(0, min(20, (int)($_POST['mobile_max_devices'] ?? 0)));
+        setSetting('mobile_max_devices', (string)$mobileMaxDevices);
         if ($minutes === 0) {
             $message = "自动登出已关闭，会话仅在浏览器关闭或 Cookie 过期后失效。";
         } else {
             $message = "不活动自动登出时间已设置为 {$minutes} 分钟。";
         }
         if ($single) {
-            $message .= " 单客户端登录已开启。";
+            $message .= " WEB 端单客户端登录已开启。";
+        }
+        if ($mobileMaxDevices === 0) {
+            $message .= " APP 端不限制在线设备数。";
+        } else {
+            $message .= " APP 端最多允许 {$mobileMaxDevices} 台设备同时在线。";
         }
         $messageType = 'success';
-        appLog("管理员设置不活动自动登出时间: {$minutes} 分钟，单客户端登录: " . ($single ? '开' : '关'));
+        appLog("管理员设置不活动自动登出时间: {$minutes} 分钟，WEB 端单客户端登录: " . ($single ? '开' : '关') . "，APP 最大在线设备数: {$mobileMaxDevices}");
     }
 }
 
@@ -582,6 +590,7 @@ $loginLogs = $stmt->fetchAll();
 $recycleBinDays = getSetting('recycle_bin_days', '30');
 $sessionTimeoutMinutes = getSetting('session_timeout_minutes', (string)$config['session_timeout_minutes']);
 $singleClientLogin = getSetting('single_client_login', '0');
+$mobileMaxDevices = getSetting('mobile_max_devices', '0');
 $userCount = count($users);
 
 // 部署模式相关
@@ -666,6 +675,21 @@ require_once __DIR__ . '/header.php';
     }
     if (!empty($GLOBALS['SEC_WARNING_KEY'])) {
         $secWarnings[] = '加密主密钥文件位于 Web 根目录内，密钥泄露将导致数据可被解密，请将 $config[\'enc_key_path\'] 指向 Web 目录之外。';
+    }
+    // v1.39.0：管理员仍在使用内置默认口令时告警
+    if (isUsingDefaultAdminPassword()) {
+        $secWarnings[] = '管理员账号仍在使用默认口令（admin/admin123），知道该口令的人都能直接登录后台。请立即修改管理员密码（改密后本提示自动消失）。';
+    }
+    // v1.39.0：外网部署模式下，关键防护未开启时给出建议
+    if ($deployMode === 'internet') {
+        $miss = [];
+        if ($registerMode === 'open') $miss[] = '限制开放注册（建议邀请制或关闭）';
+        if (!$ratelimitEnabled) $miss[] = '登录限速';
+        if (!$captchaEnabled) $miss[] = '登录验证码';
+        if (!$require2fa) $miss[] = '强制二次认证';
+        if ($miss) {
+            $secWarnings[] = '当前为「外网部署」模式，但以下防护尚未开启：' . implode('、', $miss) . '。可在下方「部署模式」切换为外网安全预设，或展开「自定义安全设置」逐项启用。';
+        }
     }
     if ($secWarnings): ?>
         <div class="message error" style="margin-bottom:14px;border-color:#ffa39e;background:#fff1f0;">
@@ -1088,9 +1112,14 @@ require_once __DIR__ . '/header.php';
                     <div class="field" style="display:flex;align-items:center;gap:10px;margin-top:4px;">
                         <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer;">
                             <input type="checkbox" name="single_client_login" value="1" <?= $singleClientLogin === '1' ? 'checked' : '' ?> style="width:auto;margin:0;accent-color:#722ed1;">
-                            <span>只允许单客户端登录</span>
+                            <span>WEB 端只允许单客户端登录</span>
                         </label>
-                        <span style="font-size:12px;color:#999;">开启后，在新设备登录会将旧设备强制登出</span>
+                        <span style="font-size:12px;color:#999;">开启后，网页端在新设备登录会将旧网页会话强制登出（不影响 APP 端）</span>
+                    </div>
+                    <div class="field" style="margin-top:4px;">
+                        <label>APP 端最大同时在线设备数（0 = 不限制）</label>
+                        <input type="number" name="mobile_max_devices" value="<?= (int)$mobileMaxDevices ?>" min="0" max="20" style="width:100px;">
+                        <div style="font-size:12px;color:#999;margin-top:4px;">APP 登录不会把网页端挤下线，多台手机可同时在线；超出上限时，最久未活跃的设备会被自动踢下线。</div>
                     </div>
                     <button type="submit" class="btn-primary" style="align-self:flex-start;">保存设置</button>
                 </form>

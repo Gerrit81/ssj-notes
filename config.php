@@ -1,10 +1,16 @@
 <?php
 /**
  * 轻记 - 配置文件
+ *
+ * v1.45.4 起配置分层：
+ *   - 应用元数据（版本号）在 version.php，每次发版只改那个文件；
+ *   - 环境差异项（数据目录等）放在各机器自己的 config.local.php，
+ *     不随代码上传，本文件保持"传到任何环境都安全"；
+ *   - 本文件加载顺序：默认值 → config.local.php 覆盖（仅差异项）。
  */
 
-// 应用版本
-$config['app_version'] = '1.38.1';
+// 应用版本（读取 version.php）
+$config['app_version'] = require __DIR__ . '/version.php';
 
 // 应用名称
 $config['app_name'] = '轻记';
@@ -33,8 +39,10 @@ $config['app_name'] = '轻记';
 //      否则即使有伪静态规则也可能被直接访问）
 //
 // 留空则自动使用程序目录下的 data/ 子目录（仅适合纯本机测试）
+// 【v1.45.4】本项属环境差异配置：各机器请在 config.local.php 中覆盖，
+//            不要直接改这里（否则上传部署时会互相覆盖）。
 // ████████████████████████████████████████████████████
-$config['data_dir'] = 'D:/phpStudy_Pro/data/jsbserect';
+$config['data_dir'] = '';
 
 // 数据库文件路径（单独指定可覆盖 data_dir 中的默认位置）
 // 留空则自动使用 data_dir/notes.db
@@ -59,9 +67,16 @@ $config['session_lifetime'] = 604800;
 // 不活动自动登出时间（分钟），0 表示不启用，默认30分钟
 $config['session_timeout_minutes'] = 30;
 
-// 管理员初始账号信息（首次初始化时使用）
-$config['admin_username'] = 'admin';
-$config['admin_password'] = 'admin123';
+// 管理员初始账号信息（仅首次初始化创建管理员时使用）
+//
+// 【安全提醒】管理员口令是系统最高权限凭证，请勿长期沿用默认值 admin/admin123：
+//   1) config.php 若被读取（服务器被入侵、配置泄露），明文口令将直接暴露；
+//   2) 首次安装完成后请立即登录后台修改管理员密码；
+//   3) 更推荐用环境变量注入口令，避免明文出现在文件中（未设置时回退到默认值）：
+//       宝塔/Apache 可在站点配置加入：SetEnv JSB_ADMIN_PASSWORD "强口令"
+//       或在启动 PHP 前：export JSB_ADMIN_PASSWORD="强口令"
+$config['admin_username'] = getenv('JSB_ADMIN_USERNAME') ?: 'admin';
+$config['admin_password'] = getenv('JSB_ADMIN_PASSWORD') ?: 'admin123';
 
 // 时区设置
 date_default_timezone_set('Asia/Shanghai');
@@ -69,3 +84,17 @@ date_default_timezone_set('Asia/Shanghai');
 // 错误报告（生产环境建议关闭 display_errors）
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
+
+// ████████████████████████████████████████████████████
+// 环境覆盖配置（v1.45.4）
+// 加载同目录的 config.local.php（若存在），只覆盖其中写明的差异项。
+// 各机器的 data_dir / db_path / enc_key_path 等环境项放在那个文件里，
+// 本文件即可随代码自由上传，不再有"传上去还得手工改"的问题。
+// ████████████████████████████████████████████████████
+$localConfigFile = __DIR__ . '/config.local.php';
+if (is_file($localConfigFile)) {
+    $localConfig = require $localConfigFile;
+    if (is_array($localConfig) && !empty($localConfig)) {
+        $config = array_merge($config, $localConfig);
+    }
+}

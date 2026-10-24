@@ -286,6 +286,10 @@
             font-family: Consolas, 'Courier New', monospace;
             text-align: left;
         }
+        .footer-meta .footer-sep {
+            margin: 0 6px;
+            color: #ddd;
+        }
         .version-link {
             color: #ccc;
             text-decoration: none;

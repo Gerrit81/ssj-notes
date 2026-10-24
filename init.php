@@ -126,27 +126,69 @@ if (isLoggedIn()) {
         $_SESSION['last_activity'] = time();
     }
 
-    // --- 单客户端登录：检测 session_token 是否被新登录覆盖 ---
-    $singleClient = (int)getSetting('single_client_login', '0');
-    if ($singleClient && !empty($_SESSION['session_token'])) {
-        $db = getDB();
-        $stmt = $db->prepare("SELECT session_token FROM users WHERE id = :id");
-        $stmt->execute([':id' => $_SESSION['user_id']]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        $stmt->closeCursor();
-        if (!$row || $row['session_token'] !== $_SESSION['session_token']) {
-            appLog("用户 " . currentUsername() . " 因在其他客户端登录被强制登出");
+    // --- 多端会话管理（v1.43.0：WEB 与 APP 会话分离） ---
+    // WEB 会话：开启单客户端登录时，校验 users.session_token 是否被新的 WEB 登录覆盖；
+    // APP 会话：校验 user_devices 中登记的设备令牌，设备被挤掉（删除）即强制登出，
+    // 两者互不干扰——APP 登录不会把 WEB 挤下线，反之亦然。
+    $authType = ($_SESSION['auth_type'] ?? 'web') === 'mobile' ? 'mobile' : 'web';
+    if ($authType === 'mobile') {
+        $deviceToken = (string)($_SESSION['device_token'] ?? '');
+        if ($deviceToken === '' || !isMobileDeviceValid((int)$_SESSION['user_id'], $deviceToken)) {
+            appLog("用户 " . currentUsername() . " 的 APP 会话已失效（设备被移除或超出在线设备数）");
             logoutUser();
             $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
                 || (defined('API_REQUEST') && API_REQUEST);
             if ($isAjax) {
                 http_response_code(401);
                 header('Content-Type: application/json; charset=utf-8');
-                echo json_encode(['error' => '您的账号已在另一台设备登录，当前会话已失效', 'code' => 'kicked']);
+                echo json_encode(['error' => '当前设备已退出登录（被新设备替换或已超出在线设备数），请重新登录', 'code' => 'kicked']);
                 exit;
             }
             header('Location: index.php?kicked=1');
             exit;
+        }
+        touchMobileDevice($deviceToken);
+    } else {
+        // --- WEB 端 per-device 校验（v1.44.0）：session_token 必须能在 user_devices 中查到，且未被撤销 ---
+        // v1.43.0 旧机制（users.session_token + single_client_login）保留为兼容性回退：
+        //   新登录走 user_devices.session_token；老登录走 users.session_token；下一次主动登录后自动迁移到新机制。
+        if (!empty($_SESSION['session_token'])) {
+            $token = (string)$_SESSION['session_token'];
+            $userId = (int)$_SESSION['user_id'];
+            $db = getDB();
+            $valid = false;
+            // 1. 新机制：user_devices 中的 session_token
+            $stmt = $db->prepare("SELECT id, device_type FROM user_devices WHERE session_token = ? AND revoked_at IS NULL");
+            $stmt->execute([$token]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row && ($row['device_type'] ?? 'mobile') === 'web') {
+                $valid = true;
+                // 异步更新 last_active_at
+                $touch = $db->prepare("UPDATE user_devices SET last_active_at = ? WHERE id = ?");
+                $touch->execute([date('Y-m-d H:i:s'), (int)$row['id']]);
+            } else {
+                // 2. 兼容旧机制：users.session_token（v1.44.0 之前已登录的会话）
+                $stmt = $db->prepare("SELECT session_token FROM users WHERE id = ?");
+                $stmt->execute([$userId]);
+                $legacy = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($legacy && $legacy['session_token'] !== null && $legacy['session_token'] === $token) {
+                    $valid = true;
+                }
+            }
+            if (!$valid) {
+                appLog("用户 " . currentUsername() . " 的 WEB 会话已失效（设备被撤销或在其他设备登录）");
+                logoutUser();
+                $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
+                    || (defined('API_REQUEST') && API_REQUEST);
+                if ($isAjax) {
+                    http_response_code(401);
+                    header('Content-Type: application/json; charset=utf-8');
+                    echo json_encode(['error' => '当前会话已失效（设备已撤销或在其他设备登录）', 'code' => 'kicked']);
+                    exit;
+                }
+                header('Location: index.php?kicked=1');
+                exit;
+            }
         }
     }
 }
@@ -221,6 +263,44 @@ function initDatabase(): void {
     try {
         $db->exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0");
     } catch (Exception $e) {}
+
+    // APP 设备表（v1.43.0：APP 端多设备会话管理，与 WEB 单点登录分离）
+    $db->exec("CREATE TABLE IF NOT EXISTS user_devices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        device_token TEXT NOT NULL UNIQUE,
+        device_name TEXT NOT NULL DEFAULT '',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )");
+
+    // v1.44.0：扩展 user_devices 字段，把 WEB 与 APP 设备统一管理（可撤销设备列表）
+    try { $db->exec("ALTER TABLE user_devices ADD COLUMN device_type TEXT NOT NULL DEFAULT 'mobile'"); } catch (Exception $e) {}
+    try { $db->exec("ALTER TABLE user_devices ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''"); } catch (Exception $e) {}
+    try { $db->exec("ALTER TABLE user_devices ADD COLUMN ip TEXT NOT NULL DEFAULT ''"); } catch (Exception $e) {}
+    try { $db->exec("ALTER TABLE user_devices ADD COLUMN session_token TEXT DEFAULT NULL"); } catch (Exception $e) {}
+    try { $db->exec("ALTER TABLE user_devices ADD COLUMN revoked_at DATETIME DEFAULT NULL"); } catch (Exception $e) {}
+    try { $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_user_devices_session_token ON user_devices(session_token)"); } catch (Exception $e) {}
+    try { $db->exec("CREATE INDEX IF NOT EXISTS idx_user_devices_user_type ON user_devices(user_id, device_type, revoked_at)"); } catch (Exception $e) {}
+
+    // 二维码扫码登录会话表（v1.44.0）
+    // web 端发起请求时创建一行，APP 端扫码确认后写入 approved_user_id，
+    // web 端轮询命中即把当前 web 会话升级为登录态，并标记本行 consumed_at 防止重放。
+    $db->exec("CREATE TABLE IF NOT EXISTS qr_login_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_code TEXT NOT NULL UNIQUE,
+        poll_token TEXT NOT NULL UNIQUE,
+        approved_user_id INTEGER DEFAULT NULL,
+        approved_at DATETIME DEFAULT NULL,
+        consumed_at DATETIME DEFAULT NULL,
+        web_ip TEXT NOT NULL DEFAULT '',
+        web_user_agent TEXT NOT NULL DEFAULT '',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME NOT NULL,
+        FOREIGN KEY (approved_user_id) REFERENCES users(id)
+    )");
+    try { $db->exec("CREATE INDEX IF NOT EXISTS idx_qr_login_expires ON qr_login_sessions(expires_at)"); } catch (Exception $e) {}
 
     // 笔记表
     $db->exec("CREATE TABLE IF NOT EXISTS notes (
@@ -334,6 +414,7 @@ function initDatabase(): void {
         'captcha_enabled' => '0',              // 登录验证码开关
         'login_lockout_minutes' => '15',       // 锁定分钟数
         'require_2fa' => '0',                   // 二次认证全局开关（0=关闭 1=开启）
+        'mobile_max_devices' => '0',            // APP 端最大同时在线设备数（0=不限制，超限自动踢最久未活跃设备）
     ];
     foreach ($defaults as $k => $v) {
         $stmt = $db->prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
@@ -392,8 +473,16 @@ function currentUsername(): ?string {
     return $_SESSION['username'] ?? null;
 }
 
-/** 登录用户 */
-function loginUser(array $user): void {
+/**
+ * 登录用户。
+ * v1.43.0：区分 WEB / APP 会话（$authType）——
+ *  - WEB：开启单客户端登录时生成 session_token 覆盖旧端（新登录踢旧会话）；
+ *  - APP：登记设备令牌（多台可并存，受 mobile_max_devices 约束），
+ *    不触碰 WEB 的 session_token，两端互不挤下线。
+ * v1.44.0：WEB 登录也写入 user_devices 表，device_type='web'，session_token 为每端独立 token。
+ *   single_client_login=1 时把同账号其它 WEB 设备标记 revoked_at；保留 users.session_token 兼容旧会话。
+ */
+function loginUser(array $user, string $authType = 'web'): void {
     $_SESSION['user_id'] = $user['id'];
     $_SESSION['username'] = $user['username'];
     $_SESSION['is_admin'] = (int)$user['is_admin'];
@@ -401,20 +490,27 @@ function loginUser(array $user): void {
     $_SESSION['font_family'] = $user['font_family'] ?? 'default';
     $_SESSION['font_size'] = (int)($user['font_size'] ?? 15);
     $_SESSION['auto_save_interval'] = (int)($user['auto_save_interval'] ?? 3);
+    $_SESSION['auth_type'] = $authType === 'mobile' ? 'mobile' : 'web';
     // 记住登录（跳过不活动超时检测）
     if (!empty($_POST['keep_login'])) {
         $_SESSION['keep_login'] = true;
     }
-    // 单客户端登录：生成新 token，让旧的客户端失效
-    $singleClient = (int)getSetting('single_client_login', '0');
-    if ($singleClient) {
+    if ($_SESSION['auth_type'] === 'mobile') {
+        // APP 端：登记设备并拿到设备令牌（超限时函数内部会自动挤掉最久未活跃的设备）
+        $_SESSION['device_token'] = registerMobileDevice((int)$user['id']);
+    } else {
+        // WEB 端：v1.44.0 起统一通过 user_devices 跟踪
         $token = bin2hex(random_bytes(16));
         $_SESSION['session_token'] = $token;
+        registerWebDevice((int)$user['id'], $token);
+        // 同时把 token 写入 users.session_token，兼容 v1.43.0 之前已登录的会话（init.php 中作为回退校验）
         $db = getDB();
         $stmt = $db->prepare("UPDATE users SET session_token = :token WHERE id = :id");
         $stmt->execute([':token' => $token, ':id' => $user['id']]);
         $stmt->closeCursor();
     }
+    // v1.44.0：登录后立即分配 csrf_token，避免 QR 登录的 web 会话 POST 操作被 CSRF 拦截
+    generateCSRF();
     session_regenerate_id(true);
 }
 
@@ -445,6 +541,289 @@ function logoutUser(): void {
         );
     }
     session_destroy();
+}
+
+/**
+ * 将验证码答案放入会话答案池（v1.43.1）。
+ * 保留最近 5 个答案、5 分钟内有效。此前 session 只存一个答案，登录页被浏览器
+ * 预加载（预取/预渲染）、多标签页等任何一次重复加载都会覆盖答案，导致用户
+ * 按页面显示的旧题作答却报「验证码错误」；答案池使旧题在有效期内仍可校验。
+ */
+function captchaPoolAdd(string $answer): void {
+    $pool = $_SESSION['captcha_pool'] ?? [];
+    $now = time();
+    $pool = array_values(array_filter($pool, function ($item) use ($now) {
+        return is_array($item) && ($item['t'] ?? 0) > $now - 300;
+    }));
+    $pool[] = ['a' => (int)$answer, 't' => $now];
+    $_SESSION['captcha_pool'] = array_slice($pool, -5);
+}
+
+/**
+ * 校验验证码输入是否命中答案池（v1.43.1）。
+ * 无论对错都整池清空——一次性使用，防止同一个答案被反复提交（爆破由登录限速兜底）。
+ */
+function captchaPoolVerify(string $input): bool {
+    $pool = $_SESSION['captcha_pool'] ?? [];
+    unset($_SESSION['captcha_pool']);
+    $input = trim($input);
+    if ($input === '') {
+        return false;
+    }
+    foreach ($pool as $item) {
+        if ((int)$input === (int)($item['a'] ?? 0)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** APP 设备是否有效（未被挤掉/移除） */
+function isMobileDeviceValid(int $userId, string $token): bool {
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT COUNT(*) AS cnt FROM user_devices WHERE user_id = ? AND device_token = ?");
+        $stmt->execute([$userId, $token]);
+        return (int)$stmt->fetch()['cnt'] > 0;
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+/** 更新 APP 设备最近活跃时间（每次请求调用） */
+function touchMobileDevice(string $token): void {
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("UPDATE user_devices SET last_active_at = ? WHERE device_token = ?");
+        $stmt->execute([date('Y-m-d H:i:s'), $token]);
+    } catch (Exception $e) {
+        // 活跃时间更新失败不影响主流程
+    }
+}
+
+/** 移除 APP 设备登记（APP 退出登录时调用，释放在线名额） */
+function removeMobileDevice(string $token): void {
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("DELETE FROM user_devices WHERE device_token = ?");
+        $stmt->execute([$token]);
+    } catch (Exception $e) {
+        // 忽略
+    }
+}
+
+/**
+ * 登记 APP 设备（登录成功时调用），返回设备令牌。
+ * 超出 mobile_max_devices 上限时，自动移除最久未活跃的设备（保持最新 $max 台）。
+ * APP 可通过 POST device_name 传入设备名称（如手机型号），便于后续管理。
+ */
+function registerMobileDevice(int $userId): string {
+    $token = bin2hex(random_bytes(16));
+    $deviceName = trim((string)($_POST['device_name'] ?? ''));
+    if (mb_strlen($deviceName) > 60) {
+        $deviceName = mb_substr($deviceName, 0, 60);
+    }
+    $db = getDB();
+    $now = date('Y-m-d H:i:s');
+    // v1.44.0：补全 IP / UA / device_type 字段，便于「我的设备」页面辨识
+    $stmt = $db->prepare("INSERT INTO user_devices (user_id, device_token, device_name, created_at, last_active_at, device_type, user_agent, ip) VALUES (?, ?, ?, ?, ?, 'mobile', ?, ?)");
+    $stmt->execute([$userId, $token, $deviceName, $now, $now, (string)($_SERVER['HTTP_USER_AGENT'] ?? ''), requestIp()]);
+
+    $max = (int)getSetting('mobile_max_devices', '0');
+    if ($max > 0) {
+        $stmt = $db->prepare("SELECT id FROM user_devices WHERE user_id = ? ORDER BY last_active_at DESC, id DESC");
+        $stmt->execute([$userId]);
+        $rows = $stmt->fetchAll();
+        // 保留最近活跃的 $max 台，其余移除（含旧设备）
+        foreach (array_slice($rows, $max) as $old) {
+            $del = $db->prepare("DELETE FROM user_devices WHERE id = ?");
+            $del->execute([(int)$old['id']]);
+            appLog("APP 设备超出在线上限，已移除最久未活跃的设备（用户 ID={$userId}）");
+        }
+    }
+    return $token;
+}
+
+/**
+ * 登记 WEB 设备（v1.44.0）。
+ * 每端独立 session_token，可在「我的设备」页面查看与撤销。
+ * single_client_login=1 时把同账号其它 WEB 设备标记 revoked_at（保留记录便于审计）。
+ * 设备名称默认取浏览器 UA 头，便于用户辨识多端会话。
+ */
+function registerWebDevice(int $userId, string $sessionToken): void {
+    $ua = trim((string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
+    $ip = requestIp();
+    $deviceName = guessDeviceName($ua);
+    $db = getDB();
+    $now = date('Y-m-d H:i:s');
+
+    // 写入前先把同会话老设备的 revoked_at 标记（防止无限累积失效设备行）
+    $db->prepare("UPDATE user_devices SET revoked_at = COALESCE(revoked_at, ?) WHERE user_id = ? AND device_type = 'web' AND session_token = ?")
+        ->execute([$now, $userId, $sessionToken]);
+
+    $stmt = $db->prepare("INSERT INTO user_devices (user_id, device_token, device_name, created_at, last_active_at, device_type, user_agent, ip, session_token) VALUES (?, ?, ?, ?, ?, 'web', ?, ?, ?)");
+    // device_token 与 session_token 同一值（unique index 同时覆盖两者）
+    $stmt->execute([$userId, $sessionToken, $deviceName, $now, $now, $ua, $ip, $sessionToken]);
+
+    $singleClient = (int)getSetting('single_client_login', '0');
+    if ($singleClient) {
+        // 单客户端登录：把同账号其它 WEB 设备标记 revoked_at
+        $kick = $db->prepare("UPDATE user_devices SET revoked_at = ? WHERE user_id = ? AND device_type = 'web' AND revoked_at IS NULL AND id <> (SELECT max_id FROM (SELECT MAX(id) AS max_id FROM user_devices WHERE user_id = ? AND device_type = 'web' AND session_token = ?) t)");
+        $kick->execute([$now, $userId, $userId, $sessionToken]);
+    }
+}
+
+/** 解析客户端 IP（处理 X-Forwarded-For） */
+function requestIp(): string {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $ip = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
+    }
+    return $ip;
+}
+
+/** 从 User-Agent 推测简洁的设备名，便于在「我的设备」页辨识。 */
+function guessDeviceName(string $ua): string {
+    if ($ua === '') return '未知浏览器';
+    // 浏览器族
+    if (preg_match('~Edg/(\d+)~', $ua)) return 'Edge ' . preg_replace('~.*Edg/(\d+).*~', '$1', $ua);
+    if (preg_match('~OPR/(\d+)~', $ua)) return 'Opera';
+    if (preg_match('~Chrome/(\d+)~', $ua, $m)) return 'Chrome ' . $m[1];
+    if (preg_match('~Firefox/(\d+)~', $ua, $m)) return 'Firefox ' . $m[1];
+    if (preg_match('~Safari/(\d+)~', $ua, $m)) return 'Safari ' . $m[1];
+    // OS
+    if (strpos($ua, 'Windows NT 10') !== false) return 'Windows 10/11 浏览器';
+    if (strpos($ua, 'Mac OS X') !== false) return 'macOS 浏览器';
+    if (strpos($ua, 'Android') !== false) return 'Android 浏览器';
+    if (strpos($ua, 'iPhone') !== false || strpos($ua, 'iPad') !== false) return 'iOS 浏览器';
+    if (strpos($ua, 'Linux') !== false) return 'Linux 浏览器';
+    return mb_substr($ua, 0, 50);
+}
+
+/** 列出用户所有活跃设备（含已撤销），用于设备管理页 */
+function listUserDevices(int $userId): array {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT id, device_type, device_name, user_agent, ip, created_at, last_active_at, revoked_at, session_token FROM user_devices WHERE user_id = ? ORDER BY (revoked_at IS NULL) DESC, last_active_at DESC, id DESC");
+    $stmt->execute([$userId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as &$r) {
+        // 当前会话高亮标记
+        $r['is_current'] = !empty($_SESSION['session_token']) && $r['session_token'] !== null && $r['session_token'] === $_SESSION['session_token'];
+    }
+    unset($r);
+    return $rows;
+}
+
+/** 撤销指定设备（将当前设备之外同用户的所有设备踢下线） */
+function revokeDevice(int $userId, int $deviceId): bool {
+    $db = getDB();
+    $stmt = $db->prepare("UPDATE user_devices SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL");
+    $stmt->execute([date('Y-m-d H:i:s'), $deviceId, $userId]);
+    $changed = $stmt->rowCount() > 0;
+    if ($changed) {
+        appLog("用户 ID={$userId} 撤销了设备 ID={$deviceId}");
+    }
+    return $changed;
+}
+
+// --- 二维码扫码登录（v1.44.0）---
+
+/** 默认有效期（秒）：60 秒够扫码，不给攻击者太多复用窗口 */
+const QR_LOGIN_TTL = 60;
+/** QR 内容中的版本标记，方便将来兼容演进 */
+const QR_LOGIN_PROTOCOL = 'jsbqr1';
+
+/**
+ * 创建一次扫码登录会话（WEB 端轮询页调用）。
+ * 返回值含 session_code（写入 QR）、poll_token（轮询凭据）、expires_at。
+ */
+function createQrLoginSession(): array {
+    $db = getDB();
+    // 192-bit 随机（base64url 编码约 32 字符），URL-safe 且足够唯一
+    $code = rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '=');
+    $poll = rtrim(strtr(base64_encode(random_bytes(24)), '+/', '-_'), '=');
+    $now = time();
+    $expires = $now + QR_LOGIN_TTL;
+    $db->prepare("INSERT INTO qr_login_sessions (session_code, poll_token, web_ip, web_user_agent, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
+        ->execute([$code, $poll, requestIp(), (string)($_SERVER['HTTP_USER_AGENT'] ?? ''), date('Y-m-d H:i:s', $now), date('Y-m-d H:i:s', $expires)]);
+    return [
+        'session_code' => $code,
+        'poll_token'   => $poll,
+        'expires_at'   => $expires,
+    ];
+}
+
+/**
+ * 轮询扫码会话状态（WEB 端调用，每 2 秒一次）。
+ *  - status: 'pending' / 'approved' / 'expired' / 'not_found'
+ *  - approved 后附带 consumed_user_id；调用方需要执行实际登录动作（修改 $_SESSION）
+ */
+function pollQrLoginSession(string $code, string $pollToken): array {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT * FROM qr_login_sessions WHERE session_code = ?");
+    $stmt->execute([$code]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        return ['status' => 'not_found'];
+    }
+    // poll_token 必须匹配（防止凭 polling 端点猜测别人的 session_code）
+    if (!hash_equals((string)$row['poll_token'], $pollToken)) {
+        return ['status' => 'not_found'];
+    }
+    if (!empty($row['consumed_at'])) {
+        return ['status' => 'expired', 'reason' => 'consumed'];
+    }
+    if (strtotime($row['expires_at']) < time()) {
+        return ['status' => 'expired', 'reason' => 'timeout'];
+    }
+    if (!empty($row['approved_user_id'])) {
+        return [
+            'status'           => 'approved',
+            'approved_user_id' => (int)$row['approved_user_id'],
+            'session_id'       => (int)$row['id'],
+        ];
+    }
+    return ['status' => 'pending'];
+}
+
+/**
+ * APP 端扫码后调用，把当前登录用户绑定到一个等待中的扫码会话。
+ * 成功返回关联信息；失败返回 null。
+ */
+function confirmQrLogin(string $code): ?array {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT * FROM qr_login_sessions WHERE session_code = ?");
+    $stmt->execute([$code]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) return null;
+    if (!empty($row['consumed_at'])) return null;
+    if (strtotime($row['expires_at']) < time()) return null;
+    if (!empty($row['approved_user_id'])) return null; // 已被人扫过，不能再次覆盖
+    $userId = currentUserId();
+    if (!$userId) return null;
+    $db->prepare("UPDATE qr_login_sessions SET approved_user_id = ?, approved_at = ? WHERE id = ? AND approved_user_id IS NULL")
+        ->execute([$userId, date('Y-m-d H:i:s'), (int)$row['id']]);
+    return [
+        'session_id' => (int)$row['id'],
+        'web_ip'     => (string)$row['web_ip'],
+    ];
+}
+
+/** 把扫码会话标记为已消费（web 端拿到 approval 并完成登录后调用） */
+function consumeQrLoginSession(int $sessionId): void {
+    $db = getDB();
+    $db->prepare("UPDATE qr_login_sessions SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL")
+        ->execute([date('Y-m-d H:i:s'), $sessionId]);
+}
+
+/**
+ * 给前端组装的 QR 文本格式：jsbqr1://{serverHost}/{sessionCode}#v={ver}
+ * - 自定义 scheme 避免被任意 URL scheme 误解析（手机浏览器/相机识别更稳）；
+ * - serverHost 让 APP 能从 QR 反推出目标服务器域名，做防跨站钓鱼；
+ * - 不放用户名/密码/敏感数据。
+ */
+function buildQrLoginPayload(string $code, string $serverHost): string {
+    return QR_LOGIN_PROTOCOL . '://' . $serverHost . '/' . $code;
 }
 
 /** CSRF Token */
@@ -797,6 +1176,78 @@ function getLoginLockoutRemaining(string $ip): int {
         return max(0, $remaining);
     }
     return 0;
+}
+
+/**
+ * 按用户名维度检查登录锁定。
+ * 与按 IP 锁定互补：可防御伪造/轮换来源 IP 爆破同一账号，
+ * 以及同一出口 IP（如 NAT 后多用户）被误伤的情况。
+ */
+function isUserLoginLockedOut(string $username): bool {
+    if ($username === '' || getSetting('login_ratelimit_enabled', '0') !== '1') {
+        return false;
+    }
+    $maxAttempts = (int)getSetting('login_max_attempts', '5');
+    $lockoutMinutes = (int)getSetting('login_lockout_minutes', '15');
+
+    $db = getDB();
+    $stmt = $db->prepare("SELECT COUNT(*) as cnt, MAX(created_at) as last_fail
+        FROM login_logs WHERE username = ? AND success = 0
+        AND created_at > datetime('now', ?)");
+    $stmt->execute([$username, "-{$lockoutMinutes} minutes"]);
+    $row = $stmt->fetch();
+
+    if ((int)$row['cnt'] >= $maxAttempts) {
+        $lastFail = strtotime($row['last_fail']);
+        $unlockAt = $lastFail + ($lockoutMinutes * 60);
+        if (time() < $unlockAt) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** 获取按用户名锁定的剩余秒数 */
+function getUserLoginLockoutRemaining(string $username): int {
+    if ($username === '') {
+        return 0;
+    }
+    $lockoutMinutes = (int)getSetting('login_lockout_minutes', '15');
+
+    $db = getDB();
+    $stmt = $db->prepare("SELECT MAX(created_at) as last_fail
+        FROM login_logs WHERE username = ? AND success = 0
+        AND created_at > datetime('now', ?)");
+    $stmt->execute([$username, "-{$lockoutMinutes} minutes"]);
+    $row = $stmt->fetch();
+
+    if ($row['last_fail']) {
+        $lastFail = strtotime($row['last_fail']);
+        $unlockAt = $lastFail + ($lockoutMinutes * 60);
+        return max(0, $unlockAt - time());
+    }
+    return 0;
+}
+
+/**
+ * 检测管理员是否仍在使用内置默认口令 admin123。
+ * 仅用于后台安全提示；改为强口令后本检测自动通过。
+ * 说明：若管理员在 config 中自定义了口令且与默认值不同，此处不会误报。
+ */
+function isUsingDefaultAdminPassword(): bool {
+    global $config;
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT password_hash FROM users WHERE is_admin = 1 AND username = ? LIMIT 1");
+        $stmt->execute([(string)($config['admin_username'] ?? 'admin')]);
+        $row = $stmt->fetch();
+        if (!$row || empty($row['password_hash'])) {
+            return false;
+        }
+        return password_verify('admin123', $row['password_hash']);
+    } catch (Exception $e) {
+        return false;
+    }
 }
 
 // --- 邀请码 ---

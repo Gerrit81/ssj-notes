@@ -27,6 +27,9 @@ $error = '';
 $success = '';
 $notice = '';
 $mode = $_GET['mode'] ?? 'login';
+// v1.43.0：登录失败重新渲染页面时回填表单，避免验证码输错后需要重新输入账号密码
+$loginUsername = '';
+$loginPassword = '';
 
 // 超时跳转提示
 if (isset($_GET['timeout']) && $_GET['timeout'] === '1') {
@@ -112,6 +115,8 @@ function generateCaptcha(): array {
     $question = "{$a} {$op} {$b} = ?";
     $_SESSION['captcha_answer'] = $answer;
     $_SESSION['captcha_question'] = $question;
+    // v1.43.1：答案同时入池，页面被浏览器预加载/多标签页重复加载时旧题目仍可校验
+    captchaPoolAdd((string)$answer);
     return ['question' => $question, 'answer' => $answer];
 }
 
@@ -179,22 +184,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     } else {
         $username = trim($_POST['username'] ?? '');
         $password = $_POST['password'] ?? '';
+        // v1.43.0：记住本次提交的账号密码，校验失败重渲染页面时回填
+        $loginUsername = $username;
+        $loginPassword = $password;
 
         $clientIp = getRequestIp();
 
-        if (isLoginLockedOut($clientIp)) {
-            $remaining = getLoginLockoutRemaining($clientIp);
-            $minutes = ceil($remaining / 60);
+        // 登录锁定：IP 维度 + 用户名维度（防御伪造/轮换来源 IP 爆破同一账号）
+        $ipLocked = isLoginLockedOut($clientIp);
+        $userLocked = $username !== '' && isUserLoginLockedOut($username);
+        if ($ipLocked || $userLocked) {
+            $remaining = $ipLocked
+                ? getLoginLockoutRemaining($clientIp)
+                : getUserLoginLockoutRemaining($username);
+            $minutes = max(1, (int)ceil($remaining / 60));
             $error = "登录尝试过于频繁，请 {$minutes} 分钟后再试。";
         } elseif ($username === '' || $password === '') {
             $error = '请输入用户名和密码。';
         } elseif ($captchaEnabled) {
-            // 验证码校验
+            // 验证码校验（v1.43.1：答案池一次性消费，无论对错都刷新验证码）
             $captchaInput = trim($_POST['captcha'] ?? '');
-            $correctAnswer = $_SESSION['captcha_answer'] ?? -1;
-            // 每次校验后立即刷新验证码
+            $captchaOk = captchaPoolVerify($captchaInput);
             generateCaptcha();
-            if ($captchaInput === '' || (int)$captchaInput !== (int)$correctAnswer) {
+            if (!$captchaOk) {
                 $error = '验证码错误，请重新输入。';
                 logLogin($username, false, '验证码错误');
             } else {

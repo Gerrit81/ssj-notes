@@ -1163,6 +1163,12 @@
     // 将附件插入到当前编辑的文章
     // size: 'l'(大), 'm'(中/默认), 's'(小) — 仅对图片生效
     function insertAttachmentToEditor(i, size) {
+        // v1.44.1：预览状态下文本域是隐藏的，即使写入 Markdown 用户也看不到变化，
+        // 避免给「已插入」的误导性提示，改为明确拒绝并提示切换到编辑模式
+        if (typeof isPreviewMode !== 'undefined' && isPreviewMode) {
+            showToast('当前为预览状态，请先切换到编辑模式再插入图片', true);
+            return;
+        }
         size = size || 'm';
         var file = attachmentFiles[i];
         if (!file) return;
@@ -1190,6 +1196,11 @@
     var attachPendingIndex = -1;
 
     function showAttachSizePopup(event, i) {
+        // v1.44.1：同上，预览模式直接拒绝（不再走尺寸选择）
+        if (typeof isPreviewMode !== 'undefined' && isPreviewMode) {
+            showToast('当前为预览状态，请先切换到编辑模式再插入图片', true);
+            return;
+        }
         event.stopPropagation();
         var btn = event.currentTarget;
         var popup = document.getElementById('attachSizePopup');
